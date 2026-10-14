@@ -43,6 +43,7 @@ from storage.paths import DevicePath, HostPath
 from storage.transactions import (
     FileContent,
     FilePrecondition,
+    StagedTransactionFile,
     StorageTransaction,
     TransactionActivity,
     TransactionActivityPhase,
@@ -351,7 +352,21 @@ def validate(
         tuple(f.path for f in files), case_sensitive=capabilities.case_sensitive is True
     )
     _check_preconditions(session, files)
+    if plan.staging is not None:
+        if (
+            plan.recovery_material is not None
+            or plan.journal_identity != plan.staging.journal_path.parts[1]
+        ):
+            raise FilePreconditionError("Invalid transaction preparation binding")
+        plan.staging.check(session)
     for write in plan.writes:
+        if isinstance(write.source, StagedTransactionFile):
+            if plan.staging is None:
+                raise FilePreconditionError(
+                    "A staged source needs its owning preparation"
+                )
+            plan.staging.verify(session, write)
+            continue
         if isinstance(write.source, bytes) and (
             len(write.source) != write.content.size
             or hashlib.sha256(write.source).hexdigest() != write.content.sha256
@@ -369,7 +384,11 @@ def validate(
     unit = capabilities.allocation_unit_size
     journal_size = _journal_allocation(_journal(session, plan), unit)
     if plan.recovery_material is None:
-        staged = sum(allocated_size(w.content.size, unit) for w in plan.writes)
+        staged = sum(
+            allocated_size(w.content.size, unit)
+            for w in plan.writes
+            if not isinstance(w.source, StagedTransactionFile)
+        )
         originals = sum(
             allocated_size(w.expected.size, unit)
             for w in plan.writes
@@ -542,7 +561,9 @@ def _execute_external(
 
         for index, write in enumerate(plan.writes):
             staged = session._copy_transaction_file(  # pyright: ignore[reportPrivateUsage]
-                write.source,
+                write.source.path
+                if isinstance(write.source, StagedTransactionFile)
+                else write.source,
                 _stage(root, index),
                 write.content,
                 checkpoint=None,
@@ -684,7 +705,10 @@ def execute(
     if checkpoint is not None:
         checkpoint()
     try:
-        fingerprint = _persist(session, path, journal, None)
+        prior_journal = (
+            plan.staging.claim(session) if plan.staging is not None else None
+        )
+        fingerprint = _persist(session, path, journal, prior_journal)
         staged: list[FileFingerprint] = []
         # Keep enough free space for a restoration copy after every staged file.
         unit = session.mounted_volume.volume.capabilities.allocation_unit_size
@@ -712,15 +736,26 @@ def execute(
                     reserve_bytes=reserve,
                     checkpoint=checkpoint,
                 )
-            staged.append(
-                session._copy_transaction_file(  # pyright: ignore[reportPrivateUsage]
-                    write.source,
-                    _stage(root, index),
-                    write.content,
-                    reserve_bytes=reserve,
-                    checkpoint=checkpoint,
-                ).fingerprint
-            )
+            if isinstance(write.source, StagedTransactionFile):
+                staged.append(
+                    session._move_file(
+                        write.source.path,
+                        _stage(root, index),
+                        expected_source=write.source.fingerprint,
+                        expected_destination=None,
+                        create_parents=True,
+                    ).fingerprint
+                )
+            else:
+                staged.append(
+                    session._copy_transaction_file(  # pyright: ignore[reportPrivateUsage]
+                        write.source,
+                        _stage(root, index),
+                        write.content,
+                        reserve_bytes=reserve,
+                        checkpoint=checkpoint,
+                    ).fingerprint
+                )
         journal = replace(journal, state=TransactionState.PREPARED)
         fingerprint = _persist(session, path, journal, fingerprint)
         _activity(activity, TransactionActivityPhase.FLUSHING)

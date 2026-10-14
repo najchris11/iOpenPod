@@ -227,6 +227,7 @@ def test_encoded_album_is_verified_then_staged_with_playlist_membership(
             checkpoint=lambda: None,
         )
         try:
+            assert isinstance(result.song.source.source, HostPath)
             assert Path(result.song.source.source).is_file()
             assert result.song.track.title == "Album"
             assert result.song.track.metadata.chapters[0].start_ms == 0

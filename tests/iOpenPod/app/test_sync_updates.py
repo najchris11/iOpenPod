@@ -67,6 +67,7 @@ class _NoMediaPreparation(MediaTranscoder):
 
 
 @pytest.mark.parametrize("model", ["M9802", "MB565"])
+@pytest.mark.parametrize("capture_budget", [0, None])
 @pytest.mark.parametrize(
     "case,rockbox",
     [
@@ -93,7 +94,12 @@ def test_updates_retain_payload_and_commit_only_required_changes(
     case: str,
     rockbox: bool,
     monkeypatch: pytest.MonkeyPatch,
+    capture_budget: int | None,
 ) -> None:
+    if capture_budget is not None:
+        monkeypatch.setattr(
+            "iOpenPod.app.services.library_resources._MAX_CAPTURE_BYTES", capture_budget
+        )
     # Control acoustic evidence while real media verifies the selected write path.
     acoustic = "1,2,3"
 

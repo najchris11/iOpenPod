@@ -6,6 +6,7 @@ import base64
 import io
 import json
 import shutil
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from threading import Event
@@ -58,14 +59,87 @@ from iPodDB.iTunesDB.parser.parse_iTunesDB import parse_iTunesDB
 from iPodDB.iTunesDB.shared.chunk_defs.mhit import MhitHeader
 from iPodDB.library import MediaKind
 from storage import DevicePath, StorageOperationError
+from storage.media_processing import media_workspace
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Generator
 
     from iOpenPod.app.library_sync_helper import IPodTrackFingerprint
     from iOpenPod.app.library_write import WriteProgress
     from storage import HostPath
-    from storage.media_processing import MediaTools
+    from storage.media_processing import MediaTools, MediaWorkspace
+
+
+@pytest.mark.skipif(
+    any(shutil.which(tool) is None for tool in ("ffmpeg", "ffprobe")),
+    reason="FFmpeg and FFprobe required for actual Podcast preparation",
+)
+def test_podcast_batch_releases_download_and_encoder_workspaces_between_episodes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from iOpenPod.app.media import transcoding
+
+    device = build_device(tmp_path)
+    data = base64.decodebytes((FIXTURES / "tone.m4a.b64").read_bytes())
+    monkeypatch.setattr(media, "build_opener", PodcastOpenerFactory(data))
+    addition = podcast_addition()
+    additions = tuple(
+        replace(
+            addition,
+            episode=replace(
+                addition.episode,
+                episode_id=f"episode-{index}",
+                guid=f"guid-{index}",
+                title=f"Episode {index}",
+                enclosure_url=f"https://publisher.example/episode-{index}.m4a",
+            ),
+        )
+        for index in range(4)
+    )
+    monkeypatch.setattr(
+        "iOpenPod.app.sync_execution.prepare_podcast_sync",
+        FixedPodcastPlan(PodcastSyncPlan(additions=additions)),
+    )
+    paths: list[Path] = []
+    live = 0
+    peak = 0
+
+    @contextmanager
+    def observed_workspace(
+        *, checkpoint: Callable[[], None]
+    ) -> Generator[MediaWorkspace]:
+        nonlocal live, peak
+        with media_workspace(checkpoint=checkpoint) as workspace:
+            live += 1
+            peak = max(peak, live)
+            paths.append(Path(workspace.output_path(".m4a")).parent)
+            try:
+                yield workspace
+            finally:
+                live -= 1
+
+    monkeypatch.setattr(media, "media_workspace", observed_workspace)
+    monkeypatch.setattr(transcoding, "media_workspace", observed_workspace)
+    try:
+        result = SyncExecutor(device.coordinator).execute(
+            podcast_request(device.active), lambda _: None, Event()
+        )
+        assert result.status is SyncExecutionStatus.SUCCESS, result.issues
+        assert result.active is not None
+        podcasts = tuple(
+            track
+            for track in result.active.library.tracks
+            if track.media_kind is MediaKind.PODCAST
+        )
+        assert len(podcasts) == 4
+        assert len(paths) >= 8
+        assert peak <= 2 and live == 0
+        assert all(not path.exists() for path in paths)
+        assert all(
+            (device.root / track.metadata.location).is_file() for track in podcasts
+        )
+    finally:
+        device.coordinator.close()
 
 
 def test_download_checks_actual_size_and_cleans_private_capture(

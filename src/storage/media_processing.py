@@ -11,7 +11,6 @@ import math
 import os
 import re
 import subprocess
-import tempfile
 import threading
 import time
 from collections.abc import Callable
@@ -23,6 +22,14 @@ from typing import TYPE_CHECKING, Any, cast
 from mutagen.mp3 import MP3, BitrateMode
 
 from storage._filesystem import COPY_CHUNK_SIZE, fingerprint_from_stat
+from storage._media_workspaces import (
+    cleanup_media_workspaces as cleanup_media_workspaces,
+)
+from storage._media_workspaces import (
+    managed_media_directory,
+    reap_media_process,
+    spawn_media_process,
+)
 from storage.errors import FilePreconditionError, StorageOperationError
 from storage.host_capture import (
     CapturedHostFile,
@@ -30,7 +37,7 @@ from storage.host_capture import (
     _capture,  # pyright: ignore[reportPrivateUsage]
 )
 from storage.host_input import LocalHostFile
-from storage.host_tools import find_host_executable, host_tool_environment
+from storage.host_tools import find_host_executable
 from storage.paths import HostPath
 
 _TRANSFORM_LOCK = threading.BoundedSemaphore(1)
@@ -202,6 +209,7 @@ def run_media_tool(
                 low_priority=low_priority,
                 check=check,
                 inherited_fds=inherited_fds,
+                workspace_paths=(os.fspath(input_file),),
                 progress=progress,
             )
     return _run_media_tool(
@@ -230,19 +238,17 @@ def _run_media_tool(
     check: bool,
     inherited_fds: tuple[int, ...],
     progress: Callable[[MediaToolProgress], None] | None,
+    workspace_paths: tuple[str, ...] = (),
 ) -> ToolOutput:
     flags = cast("int", vars(subprocess).get("CREATE_NO_WINDOW", 0))
     if low_priority:
         flags |= cast("int", vars(subprocess).get("BELOW_NORMAL_PRIORITY_CLASS", 0))
     try:
-        process = subprocess.Popen(
+        process = spawn_media_process(
             [os.fspath(executable), *arguments],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
             creationflags=flags,
-            pass_fds=inherited_fds,
-            env=host_tool_environment(),
+            inherited_fds=inherited_fds,
+            workspace_paths=workspace_paths,
         )
     except OSError as error:
         raise MediaToolError(
@@ -285,7 +291,7 @@ def _run_media_tool(
     finally:
         if process.poll() is None:
             process.kill()
-        process.wait()
+        reap_media_process(process)
         for reader in readers:
             if reader.ident is not None:
                 reader.join()
@@ -541,8 +547,8 @@ class MediaWorkspace:
 @contextmanager
 def media_workspace(*, checkpoint: Callable[[], None]) -> Generator[MediaWorkspace]:
     checkpoint()
-    with tempfile.TemporaryDirectory(prefix="iopenpod-media-") as directory:
-        yield MediaWorkspace(Path(directory).resolve(strict=True), checkpoint)
+    with managed_media_directory() as directory:
+        yield MediaWorkspace(directory, checkpoint)
 
 
 def available_compute_threads() -> int:

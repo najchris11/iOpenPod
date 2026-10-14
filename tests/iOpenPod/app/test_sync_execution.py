@@ -16,7 +16,7 @@ from contextlib import ExitStack
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from threading import Event
+from threading import Event, Lock
 from typing import Protocol, cast
 
 import pytest
@@ -112,6 +112,8 @@ from iPodDB.library import (
 from storage import (
     DeviceEntry,
     DevicePath,
+    FileContent,
+    FileFingerprint,
     FilesystemSession,
     FlushResult,
     HostPath,
@@ -124,6 +126,7 @@ from storage import (
 from storage.host_directory import HostDirectoryEntry, LocalHostDirectory
 from storage.host_input import LocalHostFile
 from storage.media_processing import MediaToolError, MediaTools
+from storage.transactions import StagedTransactionFile
 
 
 class _SyncArtworkFrame(Protocol):
@@ -3010,5 +3013,176 @@ def test_library_retry_reports_each_track_error_once_with_readable_context(
         assert "Album" in failures[0].detail
         assert failures[0].artifact
         device.assert_original()
+    finally:
+        device.coordinator.close()
+
+
+@pytest.mark.parametrize("workers", [1, 3])
+def test_host_preparation_window_is_bounded_and_bytes_survive_publication(
+    tmp_path: Path, workers: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from storage import TransactionStaging
+
+    guard = Lock()
+    live = 0
+    peak = 0
+    captured_paths: list[Path] = []
+
+    class CountedExecutor(_Executor):
+        def _prepare_one(
+            self,
+            request: SyncExecutionRequest,
+            item: SyncPlanItem,
+            source: HostMediaSource,
+            track: Track,
+            tools: MediaTools,
+            checkpoint: Callable[[], None],
+            activity: Callable[[MediaPreparationProgress], None],
+        ) -> _PreparedTrack:
+            nonlocal live, peak
+            with guard:
+                live += 1
+                peak = max(peak, live)
+            result = super()._prepare_one(
+                request, item, source, track, tools, checkpoint, activity
+            )
+            assert isinstance(result.song.source.source, HostPath)
+            captured_paths.append(Path(result.song.source.source))
+
+            def released() -> None:
+                nonlocal live
+                with guard:
+                    live -= 1
+
+            result.resources.callback(released)
+            return result
+
+    device = build_device(tmp_path)
+    original_database = (device.root / "iPod_Control/iTunes/iTunesDB").read_bytes()
+    stage = TransactionStaging.stage
+
+    def observed_stage(
+        self: TransactionStaging,
+        target: DevicePath,
+        source: HostPath,
+        content: FileContent,
+        *,
+        expected: FileFingerprint | None = None,
+        checkpoint: Callable[[], None] | None = None,
+    ) -> StagedTransactionFile:
+        assert (
+            device.root / "iPod_Control/iTunes/iTunesDB"
+        ).read_bytes() == original_database
+        assert live <= workers
+        return stage(
+            self, target, source, content, expected=expected, checkpoint=checkpoint
+        )
+
+    monkeypatch.setattr(TransactionStaging, "stage", observed_stage)
+    names = tuple(f"Prepared item {index}" for index in range(18))
+    try:
+        result = CountedExecutor(
+            device.coordinator, transcoder=_AvailableTools(), workers=workers
+        ).execute(_request(device, _host(tmp_path, *names)), lambda _: None, Event())
+        assert result.status is SyncExecutionStatus.SUCCESS, result.issues
+        assert len(result.completed) == len(names)
+        assert 0 < peak <= workers
+        assert live == 0 and all(not path.exists() for path in captured_paths)
+        assert result.active is not None
+        for track in result.active.library.tracks:
+            if track.title in names:
+                assert (
+                    device.root / track.metadata.location
+                ).read_bytes() == f"Prepared media for {track.title}".encode()
+    finally:
+        device.coordinator.close()
+
+
+def test_cover_fallback_keeps_original_stage_after_content_changing_lyrics_rewrite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from storage import TransactionStaging
+
+    device = build_device(tmp_path, artwork_size_multiplier=760)
+    thumbnail = next((device.root / "iPod_Control/Artwork").glob("*.ithmb"))
+    thumbnail.write_bytes(b"short")
+    host = _host(tmp_path, "Lyrics fallback")
+    source = host.sources[0].path
+    Path(source).write_bytes(
+        base64.decodebytes((FIXTURES / "tone.m4a.b64").read_bytes())
+    )
+    observed = LocalHostFile.observe(source)
+    cover = tmp_path / "cover.png"
+    Image.new("RGB", (180, 180), "blue").save(cover)
+    cover_observed = LocalHostFile.observe(HostPath(cover))
+    host = replace(
+        host,
+        sources=(
+            replace(
+                host.sources[0],
+                size_bytes=observed.size_bytes,
+                modified_ns=observed.modified_ns,
+            ),
+        ),
+        snapshot=replace(
+            host.snapshot,
+            tracks=(
+                replace(
+                    host.snapshot.tracks[0],
+                    size_bytes=observed.size_bytes,
+                    artwork_id=123,
+                    metadata=replace(host.snapshot.tracks[0].metadata, lyrics=WORDS),
+                ),
+            ),
+        ),
+        artwork_sources=(
+            HostMediaArtworkSource(
+                123,
+                HostArtworkKind.FOLDER,
+                cover_observed.path,
+                cover_observed.size_bytes,
+                cover_observed.modified_ns,
+                hashlib.sha256(cover.read_bytes()).hexdigest(),
+            ),
+        ),
+    )
+    versions: list[str] = []
+    stage = TransactionStaging.stage
+
+    def observed_stage(
+        self: TransactionStaging,
+        target: DevicePath,
+        source: HostPath,
+        content: FileContent,
+        *,
+        expected: FileFingerprint | None = None,
+        checkpoint: Callable[[], None] | None = None,
+    ) -> StagedTransactionFile:
+        versions.append(content.sha256)
+        return stage(
+            self, target, source, content, expected=expected, checkpoint=checkpoint
+        )
+
+    monkeypatch.setattr(TransactionStaging, "stage", observed_stage)
+    monkeypatch.setattr(library_resources, "_MAX_CAPTURE_BYTES", 0)
+    try:
+        result = _Executor(device.coordinator, transcoder=_AvailableTools()).execute(
+            _request(device, host), lambda _: None, Event()
+        )
+        assert result.status is SyncExecutionStatus.PARTIAL, result.issues
+        assert any(issue.code == "sync.artwork_deferred" for issue in result.issues)
+        assert len(versions) >= 3 and versions[0] != versions[1]
+        assert result.active is not None
+        track = next(
+            track
+            for track in result.active.library.tracks
+            if track.title == "Lyrics fallback"
+        )
+        assert (
+            embedded_lyrics(
+                MP4(device.root / track.metadata.location)  # type: ignore[no-untyped-call]
+            )
+            == WORDS
+        )
     finally:
         device.coordinator.close()

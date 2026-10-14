@@ -68,6 +68,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
     from types import TracebackType
 
+    from storage._transaction_staging import TransactionStaging
     from storage.platform.base import PlatformAdapter
     from storage.transactions import (
         FileContent,
@@ -709,6 +710,13 @@ class FilesystemSession:
                     reserve_bytes=reserve_bytes,
                     validate_staged=validate_source,
                 )
+
+    def transaction_staging(self) -> TransactionStaging:
+        """Own incremental private files until one complete plan adopts them."""
+        from storage._transaction_staging import TransactionStaging
+
+        self._revalidate(write=True)
+        return TransactionStaging(self)
 
     def validate_transaction(self, plan: StorageTransaction) -> TransactionValidation:
         """Inspect target preconditions and capacity without writing any files."""

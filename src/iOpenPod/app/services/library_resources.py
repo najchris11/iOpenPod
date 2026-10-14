@@ -49,6 +49,7 @@ from storage import (
 from storage.content_workspace import ContentWorkspace, StagedContent, content_workspace
 from storage.host_input import LocalHostFile
 from storage.media_processing import media_workspace
+from storage.transactions import StagedTransactionFile
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -60,6 +61,7 @@ if TYPE_CHECKING:
         PreparedLibrary,
     )
     from storage import FilesystemSession
+    from storage._transaction_staging import TransactionStaging
 
 logger = logging.getLogger(__name__)
 ITUNESDB = DevicePath("iPod_Control/iTunes/iTunesDB")
@@ -786,10 +788,30 @@ def _capture_file_tags(
             with ExitStack() as owned:
                 workspace = owned.enter_context(media_workspace(checkpoint=checkpoint))
                 if selected is not None:
-                    captured = workspace.capture(
-                        selected.source, expected=selected.fingerprint
-                    )
-                    private_source = captured.snapshot
+                    if isinstance(selected.source, StagedTransactionFile):
+                        selected.source.owner.verify(
+                            session,
+                            TransactionWrite(
+                                path,
+                                selected.source,
+                                FileContent.from_fingerprint(selected.fingerprint),
+                            ),
+                        )
+                        private_source = workspace.output_path(".media")
+                        copied = session.copy_to_host(
+                            selected.source.path,
+                            private_source,
+                            progress=lambda _: checkpoint(),
+                        )
+                        if copied.source_fingerprint != selected.fingerprint:
+                            raise FilePreconditionError(
+                                "The staged media changed during capture"
+                            )
+                    else:
+                        captured = workspace.capture(
+                            selected.source, expected=selected.fingerprint
+                        )
+                        private_source = captured.snapshot
                 else:
                     prior = original.get(identity)
                     if (
@@ -849,7 +871,21 @@ def _capture_file_tags(
                 )
                 output = workspace.transform_stream(private_source, transform)
                 content = FileContent.from_fingerprint(output.fingerprint)
-                if content.size <= remaining:
+                if request.media_staging is not None:
+                    retained_file = request.media_staging.stage(
+                        path,
+                        output.snapshot,
+                        content,
+                        expected=expected,
+                        checkpoint=checkpoint,
+                    )
+                    temporary_files.callback(
+                        request.media_staging.release, retained_file
+                    )
+                    writes.append(
+                        TransactionWrite(path, retained_file, content, expected)
+                    )
+                elif content.size <= remaining:
                     payload = LocalHostFile.observe(output.snapshot).read_bytes(
                         max_bytes=remaining, checkpoint=checkpoint
                     )
@@ -892,6 +928,7 @@ def transaction(
     *,
     primary_database: DevicePath = ITUNESDB,
     allow_unchanged: bool = False,
+    media_staging: TransactionStaging | None = None,
 ) -> StorageTransaction | None:
     before = {f.path: f.fingerprint for f in captured.files}
     writes: list[TransactionWrite] = list(captured.media_writes)
@@ -989,6 +1026,8 @@ def transaction(
         captured.removals,
         tuple(f for f in captured.files if f.path not in changed),
     )
+    if media_staging is not None:
+        plan = media_staging.bind(plan)
     session.validate_transaction(plan)
     return plan
 

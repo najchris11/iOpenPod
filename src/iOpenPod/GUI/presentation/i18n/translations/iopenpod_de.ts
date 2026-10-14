@@ -9700,6 +9700,10 @@ Playlists: %3</translation>
         <translation>Das Neuschreiben von Tags erfordert einen beibehaltenen Titel an seinem bisherigen Speicherort.</translation>
     </message>
     <message>
+        <source>Temporary Host files could not all be removed. Further media preparation was stopped; already staged Tracks can still Sync.</source>
+        <translation>Nicht alle temporären Dateien auf dem Computer konnten entfernt werden. Die weitere Medienvorbereitung wurde gestoppt; bereits zwischengespeicherte Titel können weiterhin synchronisiert werden.</translation>
+    </message>
+    <message>
         <source>Temporary Host files could not be prepared. Check free space and file access, then retry.</source>
         <translation>Temporäre Dateien auf dem Computer konnten nicht vorbereitet werden. Prüfen Sie den freien Speicherplatz und die Zugriffsrechte und versuchen Sie es erneut.</translation>
     </message>

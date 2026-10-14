@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import hashlib
 from collections import Counter
-from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from io import BytesIO
+from itertools import islice
 from pathlib import Path
 from threading import Event, Lock
 from typing import TYPE_CHECKING
@@ -103,10 +104,11 @@ from iPodDB.library import (
     prepared_audio,
     prepared_video,
 )
-from storage import DeviceEntry, DeviceEntryKind, DevicePath, StorageError
+from storage import DeviceEntry, DeviceEntryKind, DevicePath, HostPath, StorageError
 from storage.content_workspace import content_workspace
 from storage.host_input import LocalHostFile
 from storage.media_processing import MediaToolFinder, available_compute_threads
+from storage.transactions import FileContent
 
 _PHOTO_MEMORY_BUDGET = 2 * 1024 * 1024 * 1024
 
@@ -127,6 +129,7 @@ if TYPE_CHECKING:
     from iOpenPod.app.scrobbling.service import ScrobbleService
     from iOpenPod.app.services.device_coordinator import DeviceCoordinator
     from iOpenPod.app.sync_plan import SyncPlan
+    from storage._transaction_staging import TransactionStaging
     from storage.content_workspace import ContentWorkspace
     from storage.media_processing import MediaTools
 
@@ -192,6 +195,10 @@ class _PreparedTrack:
     resources: ExitStack
     warnings: tuple[str, ...]
     output: PreparedTranscode | None = None
+
+
+class _FilenameAllocationError(ValueError):
+    pass
 
 
 @dataclass(slots=True)
@@ -383,6 +390,10 @@ class SyncExecutor:
                     ),
                 )
             with ExitStack() as resources:
+                staging = resources.enter_context(
+                    self._coordinator.sync_staging(request.source)
+                )
+                artwork_cache: dict[int, ArtworkPixels | None] = {}
                 prepared: list[_PreparedTrack] = []
                 metadata_updates = self._prepare_metadata_updates(request, checkpoint)
                 podcast_tracks: list[_PreparedPodcast] = []
@@ -410,7 +421,13 @@ class SyncExecutor:
                         )
                     else:
                         prepared, failures = self._prepare_tracks(
-                            request, tools, resources, progress, checkpoint
+                            request,
+                            tools,
+                            resources,
+                            progress,
+                            checkpoint,
+                            staging,
+                            artwork_cache,
                         )
                         issues.extend(failures)
                         if podcast_plan is not None:
@@ -425,11 +442,18 @@ class SyncExecutor:
                                     item.song.track.metadata.location
                                     for item in prepared
                                 ),
+                                staging,
                             )
                             issues.extend(failures)
                 checkpoint()
                 issues.extend(
-                    _capture_artwork(request, prepared, metadata_updates, checkpoint)
+                    _capture_artwork(
+                        request,
+                        prepared,
+                        metadata_updates,
+                        checkpoint,
+                        cache=artwork_cache,
+                    )
                 )
                 if request.options.rockbox_metadata:
                     issues.extend(
@@ -524,6 +548,7 @@ class SyncExecutor:
                     podcast_plan.removals if podcast_plan is not None else (),
                     podcast_artwork_repairs,
                     comparison=comparison,
+                    staging=staging,
                 )
                 playlist_changes = (
                     _playlist_changes(
@@ -1001,6 +1026,8 @@ class SyncExecutor:
         resources: ExitStack,
         progress: Callable[[WriteProgress], None],
         checkpoint: Callable[[], None],
+        staging: TransactionStaging,
+        artwork_cache: dict[int, ArtworkPixels | None],
     ) -> tuple[list[_PreparedTrack], list[WriteIssue]]:
         sources = {
             host_path_identity(str(item.path)): item for item in request.host.sources
@@ -1110,12 +1137,25 @@ class SyncExecutor:
 
         # Independent preparation runs concurrently; publication uses the single
         # ordered Storage transaction, avoiding competing USB writers.
-        with ThreadPoolExecutor(
-            max_workers=min(self._workers, len(changes) or 1),
-            thread_name_prefix="sync-media",
-        ) as pool:
-            futures = {pool.submit(prepare, item): item for item in changes}
+        with (
+            self._coordinator.sync_session(request.source) as allocation_session,
+            ThreadPoolExecutor(
+                max_workers=min(self._workers, len(changes) or 1),
+                thread_name_prefix="sync-media",
+            ) as pool,
+        ):
+            allocator = MusicPathAllocator(
+                request.source.profile.capabilities.database.music_directory_count,
+                (track.metadata.location for track in request.source.library.tracks),
+                exists=allocation_session.exists,
+            )
+            remaining_items = iter(changes)
+            futures = {
+                pool.submit(prepare, item): item
+                for item in islice(remaining_items, self._workers)
+            }
             was_cancelled = False
+            stop_preparation = False
 
             def finished() -> Generator[Future[_PreparedTrack]]:
                 nonlocal activity_changed
@@ -1123,9 +1163,16 @@ class SyncExecutor:
                 while pending:
                     activity_updated.wait(timeout=0.1)
                     activity_updated.clear()
-                    done, pending = wait(
-                        pending, timeout=0, return_when=FIRST_COMPLETED
+                    # Consume in Review order, preserving serial filename allocation
+                    # and which item receives an allocation failure. Other jobs may
+                    # finish early, but the rolling window bounds their workspaces.
+                    first = min(
+                        pending,
+                        key=lambda candidate: preparation_order[futures[candidate]],
                     )
+                    done = (first,) if first.done() else ()
+                    if done:
+                        pending.remove(first)
                     with activity_lock:
                         changed = activity_changed
                         activity_changed = False
@@ -1142,19 +1189,56 @@ class SyncExecutor:
                                 active_items=items,
                             )
                         )
-                    yield from done
+                    for future in done:
+                        yield future
+                        if not was_cancelled and not stop_preparation:
+                            item = next(remaining_items, None)
+                            if item is not None:
+                                submitted = pool.submit(prepare, item)
+                                futures[submitted] = item
+                                pending.add(submitted)
 
             for future in finished():
-                item = futures[future]
+                item = futures.pop(future)
+                result = None
                 try:
                     result = future.result()
+                    try:
+                        extension = result.song.source.media.file.relative_path.rsplit(
+                            ".", 1
+                        )[-1]
+                        location = allocator.allocate(extension, checkpoint=checkpoint)
+                        result.song = relocate_song(result.song, location)
+                        result.provenance = replace(
+                            result.provenance, path=DevicePath(location)
+                        )
+                    except (OSError, ValueError, StorageError) as error:
+                        raise _FilenameAllocationError(str(error)) from error
+                    issues.extend(
+                        _capture_artwork(
+                            request, [result], [], checkpoint, cache=artwork_cache
+                        )
+                    )
+                    if request.options.rockbox_metadata:
+                        issues.extend(
+                            self._embed_rockbox_artwork(request, [result], checkpoint)
+                        )
+                    result.song = _stage_media(result.song, staging, checkpoint)
+                    result.output = None
                 except PreparationCancelledError:
                     was_cancelled = True
                 except Exception as error:
                     issues.append(
                         WriteIssue(
-                            "sync.item_failed",
+                            "sync.filename_failed"
+                            if isinstance(error, _FilenameAllocationError)
+                            else "sync.item_failed",
                             source_text(
+                                "{name} was skipped because an unused four-character media filename could not be reserved. Its existing iPod copy was kept. Resolve the reported Music-folder problem, then rescan and retry.",
+                                name=item.name,
+                            )
+                            if isinstance(error, _FilenameAllocationError)
+                            else source_text(
                                 "{name} was skipped. Its existing iPod copy was kept. "
                                 "Correct the source or encoder settings and retry.",
                                 name=item.name,
@@ -1191,6 +1275,20 @@ class SyncExecutor:
                         )
                         for warning in result.warnings
                     )
+                finally:
+                    if result is not None:
+                        try:
+                            result.resources.close()
+                        except Exception as error:
+                            stop_preparation = True
+                            issues.append(
+                                WriteIssue(
+                                    "sync.host_cleanup_pending",
+                                    "Temporary Host files could not all be removed. Further media preparation was stopped; already staged Tracks can still Sync.",
+                                    severity=IssueSeverity.WARNING,
+                                    detail=exception_text(error),
+                                )
+                            )
                 completed += 1
                 progress(
                     WriteProgress(
@@ -1213,52 +1311,7 @@ class SyncExecutor:
                 raise PreparationCancelledError
         order = {item: index for index, item in enumerate(request.plan.items)}
         prepared.sort(key=lambda result: order[result.item])
-        if not prepared:
-            return prepared, issues
-        allocated: list[_PreparedTrack] = []
-        # Reserve destinations serially: CPU workers must not compete for USB
-        # metadata reads. Even replaced/removed paths stay reserved until commit.
-        with self._coordinator.sync_session(request.source) as session:
-            allocator = MusicPathAllocator(
-                request.source.profile.capabilities.database.music_directory_count,
-                (track.metadata.location for track in request.source.library.tracks),
-                exists=session.exists,
-            )
-            for result in prepared:
-                checkpoint()
-                try:
-                    extension = result.song.source.media.file.relative_path.rsplit(
-                        ".", 1
-                    )[-1]
-                    location = allocator.allocate(extension, checkpoint=checkpoint)
-                    song = relocate_song(result.song, location)
-                except (OSError, ValueError, StorageError) as error:
-                    issues.append(
-                        WriteIssue(
-                            "sync.filename_failed",
-                            source_text(
-                                "{name} was skipped because an unused four-character "
-                                "media filename could not be reserved. Its existing iPod copy was kept. "
-                                "Resolve the reported Music-folder problem, then rescan and retry.",
-                                name=result.item.name,
-                            ),
-                            subject="track",
-                            record_id=result.item.ipod_id,
-                            detail=exception_text(error),
-                            artifact=result.item.host_path or "",
-                        )
-                    )
-                else:
-                    allocated.append(
-                        replace(
-                            result,
-                            song=song,
-                            provenance=replace(
-                                result.provenance, path=DevicePath(location)
-                            ),
-                        )
-                    )
-        return allocated, issues
+        return prepared, issues
 
     def _prepare_metadata_updates(
         self,
@@ -1402,6 +1455,7 @@ class SyncExecutor:
         progress: Callable[[WriteProgress], None],
         checkpoint: Callable[[], None],
         reserved: tuple[str, ...],
+        staging: TransactionStaging,
     ) -> tuple[list[_PreparedPodcast], list[WriteIssue]]:
         prepared: list[_PreparedPodcast] = []
         issues: list[WriteIssue] = []
@@ -1572,7 +1626,7 @@ class SyncExecutor:
                                     artifact=episode.enclosure_url,
                                 )
                             )
-                        resources.callback(lifetime.pop_all().close)
+                        song = _stage_media(song, staging, checkpoint)
                         prepared.append(
                             _PreparedPodcast(
                                 item,
@@ -2076,6 +2130,23 @@ def _song(
     )
 
 
+def _stage_media(
+    song: ImportedSong, staging: TransactionStaging, checkpoint: Callable[[], None]
+) -> ImportedSong:
+    """Retain a private device version so Host preparation can close promptly."""
+    if not isinstance(song.source.source, HostPath):
+        raise ValueError("Incoming media was already staged")
+    staged = staging.stage(
+        DevicePath(song.source.media.file.relative_path),
+        song.source.source,
+        FileContent.from_fingerprint(song.source.fingerprint),
+        checkpoint=checkpoint,
+    )
+    return replace(
+        song, source=replace(song.source, source=staged, fingerprint=staged.fingerprint)
+    )
+
+
 def _song_with_output(song: ImportedSong, output: PreparedTranscode) -> ImportedSong:
     """Refresh media evidence after optional Rockbox tagging."""
 
@@ -2106,6 +2177,7 @@ def _draft(
     podcast_artwork_repairs: tuple[_PodcastArtworkRepair, ...] = (),
     *,
     comparison: SyncPlan | None = None,
+    staging: TransactionStaging | None = None,
 ) -> tuple[LibraryPreparationRequest, tuple[SyncPlanItem, ...], bool]:
     """Build desired state, completed actions, and whether implicit changes exist."""
     original = request.source.library
@@ -2355,6 +2427,7 @@ def _draft(
             for item in prepared_photos
             if item.item.action is SyncPlanAction.UPDATE
         ),
+        media_staging=staging,
     )
     return draft, tuple(completed), reconciled or normalized != desired
 
@@ -2758,7 +2831,10 @@ def _capture_artwork(
     tracks: list[_PreparedTrack],
     metadata_updates: list[_PreparedMetadataUpdate],
     checkpoint: Callable[[], None],
+    *,
+    cache: dict[int, ArtworkPixels | None] | None = None,
 ) -> tuple[WriteIssue, ...]:
+    cache = {} if cache is None else cache
     formats = application_artwork_formats(request.source.profile)
     target_px = max(max(item.width, item.height) for item in formats)
     sources = {item.artwork_id: item for item in request.host.artwork_sources}
@@ -2788,6 +2864,15 @@ def _capture_artwork(
     issues: list[WriteIssue] = []
     for identity, group in groups.items():
         checkpoint()
+        if identity in cache:
+            pixels = cache[identity]
+            if pixels is not None:
+                for track in group:
+                    if isinstance(track, _PreparedTrack):
+                        track.song = replace(track.song, artwork=pixels)
+                    else:
+                        track.artwork = pixels
+            continue
         try:
             source = sources.get(identity)
             if source is None:
@@ -2798,6 +2883,7 @@ def _capture_artwork(
         except PreparationCancelledError:
             raise
         except Exception as error:
+            cache[identity] = None
             issues.append(
                 WriteIssue(
                     "sync.artwork_skipped",
@@ -2811,6 +2897,7 @@ def _capture_artwork(
                 )
             )
         else:
+            cache[identity] = pixels
             for track in group:
                 if isinstance(track, _PreparedTrack):
                     track.song = replace(track.song, artwork=pixels)

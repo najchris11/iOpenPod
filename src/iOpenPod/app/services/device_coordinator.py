@@ -137,6 +137,7 @@ if TYPE_CHECKING:
         PreparedPhoto,
         Track,
     )
+    from storage._transaction_staging import TransactionStaging
     from storage.content_workspace import ContentWorkspace
 
 logger = logging.getLogger(__name__)
@@ -351,6 +352,7 @@ class DeviceCoordinator:
             str, tuple[MountedVolume, FileFingerprint]
         ] = {}
         self._sync_cleanup_path = ""
+        self._sync_staging: TransactionStaging | None = None
 
     @property
     def volume_presentation_enabled(self) -> bool:
@@ -380,7 +382,7 @@ class DeviceCoordinator:
         self, session: FilesystemSession
     ) -> tuple[tuple[DevicePath, TransactionState], ...]:
         try:
-            return _terminal_transaction_journals(session)
+            return _terminal_transaction_journals(session, staging=self._sync_staging)
         except SyncRecoveryRequiredError as error:
             self._recovery_observations[error.recovery_path] = (
                 session.mounted_volume,
@@ -534,6 +536,28 @@ class DeviceCoordinator:
             self._check_sync_recovery(session)
             yield session
             validate()
+
+    @contextlib.contextmanager
+    def sync_staging(self, expected: ActiveIPod) -> Generator[TransactionStaging]:
+        """Reserve private transaction preparations for one selected connection."""
+        with self.sync_session(expected), self._lock:
+            active = self._active
+            assert active is not None
+            if self._sync_staging is not None:
+                raise DeviceChangedError("Another Sync owns private preparations")
+            mounted = active.record.mounted_volume
+        with self._storage.open_session(
+            mounted, access=AccessMode.READ_WRITE
+        ) as session:
+            staging = session.transaction_staging()
+            self._sync_staging = staging
+            try:
+                with staging:
+                    yield staging
+            except RecoverableWriteError as error:
+                raise SyncRecoveryRequiredError(error.recovery_path) from error
+            finally:
+                self._sync_staging = None
 
     def pack_photo_shards(
         self,
@@ -1158,6 +1182,11 @@ class DeviceCoordinator:
         )
 
         expected, snapshot = request.source, request.snapshot
+        if (
+            request.media_staging is not None
+            and request.media_staging is not self._sync_staging
+        ):
+            raise DeviceChangedError("The Sync preparation is no longer owned")
 
         def checkpoint(
             phase: str,
@@ -1402,6 +1431,7 @@ class DeviceCoordinator:
                         expected.database_name
                     ),
                     allow_unchanged=allow_unchanged,
+                    media_staging=request.media_staging,
                 )
                 if write is None:
                     # Changed reviews validate all captured files through their
@@ -4256,6 +4286,8 @@ def _raise_if_cleanup_completed(
 
 def _terminal_transaction_journals(
     session: FilesystemSession,
+    *,
+    staging: TransactionStaging | None = None,
 ) -> tuple[tuple[DevicePath, TransactionState], ...]:
     """Recognize crash recovery from durable device journals before any mutation."""
     recovery_root = DevicePath(".iopenpod-recovery")
@@ -4276,6 +4308,8 @@ def _terminal_transaction_journals(
         except (StorageError, ValueError) as error:
             raise SyncRecoveryRequiredError(str(journal)) from error
         if status.state not in (TransactionState.COMMITTED, TransactionState.RESTORED):
+            if staging is not None and staging.allows(session, journal):
+                continue
             raise SyncRecoveryRequiredError(str(journal))
         # Host identities can change across reconnects. Completed journals are
         # not interrupted work, but only matching identities may offer cleanup.

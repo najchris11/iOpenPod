@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from storage.errors import RecoverableWriteError
 
 if TYPE_CHECKING:
+    from storage._transaction_staging import TransactionStaging
     from storage.models import FileFingerprint, FlushResult
     from storage.paths import DevicePath, HostPath
 
@@ -42,9 +43,20 @@ class FilePrecondition:
 
 
 @dataclass(frozen=True, slots=True)
+class StagedTransactionFile:
+    """An immutable private version owned by a connection-bound preparation."""
+
+    owner: TransactionStaging
+    path: DevicePath
+    target: DevicePath
+    fingerprint: FileFingerprint
+    expected: FileFingerprint | None
+
+
+@dataclass(frozen=True, slots=True)
 class TransactionWrite:
     path: DevicePath
-    source: bytes | HostPath
+    source: bytes | HostPath | StagedTransactionFile
     content: FileContent
     expected: FileFingerprint | None = None
     modified_ns: int | None = None
@@ -96,6 +108,7 @@ class StorageTransaction:
     reserve_bytes: int = 0
     recovery_material: TransactionRecoveryMaterial | None = None
     journal_identity: str | None = None
+    staging: TransactionStaging | None = None
 
     def __post_init__(self) -> None:
         identity = self.journal_identity

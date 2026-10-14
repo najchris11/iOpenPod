@@ -123,8 +123,11 @@ def test_sync_regenerates_all_supplied_covers_to_fresh_verified_shards(
             assert result.status is (
                 SyncExecutionStatus.CANCELLED
                 if damage == "cancelled"
-                else SyncExecutionStatus.FAILED
+                else SyncExecutionStatus.RECOVERY_REQUIRED
             )
+            if damage == "disconnect":
+                assert result.recovery_path
+                assert (device.root / result.recovery_path).is_file()
             device.assert_original()
             return
         assert result.status is SyncExecutionStatus.SUCCESS, result.issues

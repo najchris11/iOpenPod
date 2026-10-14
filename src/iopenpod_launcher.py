@@ -113,6 +113,14 @@ def initialize_application() -> None:
     setup_logger(log_path)
 
     logger.info("iOpenPod Starting...")
+    from storage.media_processing import cleanup_media_workspaces
+
+    try:
+        cleaned = cleanup_media_workspaces()
+    except OSError as error:
+        logger.warning("Temporary media cleanup could not run: %s", error)
+    else:
+        logger.info("Removed %d stale media workspaces", len(cleaned))
 
     _log_startup_version()
 

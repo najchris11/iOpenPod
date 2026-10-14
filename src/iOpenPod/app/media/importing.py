@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 
     from device_registry import DeviceProfile
     from iOpenPod.app.media.models import MediaInspection
+    from storage.transactions import StagedTransactionFile
 
 
 class _MutagenReader(Protocol):
@@ -58,7 +59,7 @@ class _EmbeddedPicture(Protocol):
 class LibraryMediaSource:
     """A selected Host source and the exact facts required by its draft Track."""
 
-    source: HostPath
+    source: HostPath | StagedTransactionFile
     fingerprint: FileFingerprint
     media: PreparedMedia
     # Descriptive original path for diagnostics when source is a prepared copy.

@@ -11,8 +11,8 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
+from storage._media_workspaces import reap_media_process, spawn_media_process
 from storage.host_input import LocalHostFile
-from storage.host_tools import host_tool_environment
 from storage.media_processing import MediaToolError, run_media_tool
 
 if TYPE_CHECKING:
@@ -149,13 +149,9 @@ def probe(
     stdout = _Output(max_output_bytes)
     stderr = _Output(min(max_output_bytes, 65536))
     try:
-        process = subprocess.Popen(
+        process = spawn_media_process(
             args,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
             creationflags=_CREATE_NO_WINDOW,
-            env=host_tool_environment(),
         )
     except OSError as error:
         raise MediaInspectionError(
@@ -186,7 +182,7 @@ def probe(
     finally:
         if process.poll() is None:
             process.kill()
-        process.wait()
+        reap_media_process(process)
         for reader in readers:
             if reader.ident is not None:
                 reader.join()

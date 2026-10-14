@@ -16,6 +16,7 @@ from iOpenPod.app.chaptered_conversion import (
 )
 from iOpenPod.app.library_write import PreparationCancelledError
 from iOpenPod.app.models.track_order import album_track_sort_key
+from storage import HostPath
 
 if TYPE_CHECKING:
     from tempfile import TemporaryDirectory
@@ -180,7 +181,11 @@ class ChapteredConversionController(QObject):
             or self._workspace.locked
         ):
             self.cancel()
-        used = {Path(source.source).parent for source in self._workspace.media_sources}
+        used = {
+            Path(source.source).parent
+            for source in self._workspace.media_sources
+            if isinstance(source.source, HostPath)
+        }
         retained: list[TemporaryDirectory[str]] = []
         for directory in self._directories:
             if Path(directory.name) in used:

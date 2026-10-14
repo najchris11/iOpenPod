@@ -1,5 +1,6 @@
 """Public interface for safe mounted-volume and filesystem access."""
 
+from storage._transaction_staging import TransactionStaging
 from storage._writer_lock import HostResourceLease
 from storage.errors import (
     ConcurrentModificationError,
@@ -160,6 +161,7 @@ __all__ = [
     "TransactionRecoveryMaterial",
     "TransactionRemoval",
     "TransactionResult",
+    "TransactionStaging",
     "TransactionState",
     "TransactionValidation",
     "TransactionWrite",

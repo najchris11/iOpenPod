@@ -9700,6 +9700,10 @@ Playlists: %3</translation>
         <translation>La reescritura de etiquetas requiere una pista conservada en su ubicación actual.</translation>
     </message>
     <message>
+        <source>Temporary Host files could not all be removed. Further media preparation was stopped; already staged Tracks can still Sync.</source>
+        <translation>No se pudieron eliminar todos los archivos temporales del equipo. Se detuvo la preparación de más archivos multimedia; las pistas ya preparadas pueden sincronizarse.</translation>
+    </message>
+    <message>
         <source>Temporary Host files could not be prepared. Check free space and file access, then retry.</source>
         <translation>No se pudieron preparar los archivos temporales del equipo. Comprueba el espacio libre y los permisos de acceso a los archivos e inténtalo de nuevo.</translation>
     </message>

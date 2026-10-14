@@ -224,6 +224,41 @@ def test_full_shard_allocation_uses_inventory_without_reading_full_unmodified_fi
     assert result.prepared.artwork_files[0].relative_path.endswith("F1055_2.ithmb")
 
 
+@pytest.mark.parametrize("over_limit", [False, True])
+def test_default_shard_cap_handles_the_itunes_boundary(over_limit: bool) -> None:
+    source = library()
+    limit = 524_288_000
+    assert TARGET.max_artwork_file_bytes == limit
+    # Inventory alone suffices for full shards; a shard with room requires bytes.
+    dependency = FileDependency(
+        "iPod_Control/Artwork/F1055_1.ithmb",
+        limit - (0 if over_limit else 32),
+        "0" * 64,
+    )
+    desired = replace(
+        source.snapshot,
+        tracks=(
+            replace(source.snapshot.tracks[0], artwork_id=RED.artwork_id),
+            source.snapshot.tracks[1],
+        ),
+    )
+    result = source.prepare(
+        source.analyze(source.begin_draft(desired), TARGET),
+        WriteResources(artwork=(RED,), file_inventory=(dependency,)),
+    )
+    if over_limit:
+        assert result.prepared is not None, result.issues
+        assert result.prepared.artwork_files[0].relative_path.endswith("F1055_2.ithmb")
+        assert dependency in result.prepared.retained_files
+    else:
+        assert result.prepared is None
+        assert any(
+            issue.code == "preparation.cannot_encode"
+            and "Supply verified source bytes before appending" in issue.message
+            for issue in result.issues
+        )
+
+
 def test_artwork_addition_keeps_original_unknown_data_and_photo_dataset() -> None:
     original = base64.b64decode(
         (

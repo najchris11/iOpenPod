@@ -71,7 +71,7 @@ class WriteTarget:
     sqlite_postprocess_commands: tuple[str, ...] = ()
     cover_formats: tuple[CoverFormat, ...] = ()
     chapter_formats: tuple[CoverFormat, ...] = field(default=(), kw_only=True)
-    max_artwork_file_bytes: int = 256 * 1024 * 1024
+    max_artwork_file_bytes: int = 524_288_000
     # The meaning of this root field is not established across all models.
     # The application supplies the identified Device Profile's creation policy.
     # Retained ArtworkDB root values are never replaced with this seed.

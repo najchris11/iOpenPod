@@ -73,7 +73,12 @@ def prepare_podcast_covers(
                     raise ValueError(
                         "Podcast covers exceed the 64 MiB preparation limit; sync fewer Podcasts at once"
                     )
-                pixels = ArtworkPixels(image.width, image.height, image.rgb888)
+                pixels = ArtworkPixels(
+                    image.width,
+                    image.height,
+                    image.rgb888,
+                    source_image_size=image.source_image_size,
+                )
                 by_url[url] = pixels
                 retained_bytes += len(pixels.rgb888)
             except PreparationCancelledError:

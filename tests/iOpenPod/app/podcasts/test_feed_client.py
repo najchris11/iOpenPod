@@ -157,6 +157,7 @@ def test_artwork_loader_returns_bounded_square_rgb_pixels(
     assert image.width == 96
     assert image.height == 96
     assert len(image.rgb888) == 96 * 96 * 3
+    assert image.source_image_size == len(payload.getvalue())
 
 
 class _TrickleResponse:

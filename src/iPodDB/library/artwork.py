@@ -20,13 +20,18 @@ class CoverFormat:
 
 @dataclass(frozen=True, slots=True)
 class ArtworkPixels:
-    """Owned RGB888 data with no database, filesystem, or GUI objects."""
+    """Owned RGB888 data and encoded source byte count (zero when unknown)."""
 
     width: int
     height: int
     rgb888: bytes
+    source_image_size: int = field(default=0, kw_only=True)
 
     def __post_init__(self) -> None:
+        if not 0 <= self.source_image_size <= 0xFFFFFFFF:
+            raise ValueError(
+                "Artwork source image size must fit an unsigned 32-bit field"
+            )
         if (
             not 0 < self.width <= 8192
             or not 0 < self.height <= 8192

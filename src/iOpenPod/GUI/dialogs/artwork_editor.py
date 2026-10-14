@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections import Counter
+from dataclasses import replace
 from math import floor
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -818,6 +819,7 @@ class ArtworkEditor(QWidget):
             return
         crop = ArtworkCropDialog(_image_from_pixels(value), self)
         if crop.exec() == QDialog.DialogCode.Accepted:
+            pixels = replace(crop.pixels(), source_image_size=value.source_image_size)
             if self._adding:
                 used = {frame.display_time_ms for frame in self._current_frames() or ()}
                 time_ms = 0 if 0 not in used else self._selected_time + 1000
@@ -827,9 +829,9 @@ class ArtworkEditor(QWidget):
                     time_ms = 1000
                     while time_ms in used:
                         time_ms += 1000
-                self.add_pending_artwork(crop.pixels(), time_ms)
+                self.add_pending_artwork(pixels, time_ms)
             else:
-                self.set_pending_artwork(crop.pixels(), source_name)
+                self.set_pending_artwork(pixels, source_name)
 
     def _import_failed(self, detail: str) -> None:
         self._refresh()

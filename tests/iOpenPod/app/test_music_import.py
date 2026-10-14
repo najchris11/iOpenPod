@@ -12,6 +12,7 @@ import pytest
 from tests.iOpenPod.app.services.test_first_artwork_save import bare_device
 from tests.iOpenPod.app.services.test_library_resources import Device, build_device
 
+from iOpenPod.app.host_media_library import embedded_artwork_from_bytes
 from iOpenPod.app.library_workspace import LibraryWorkspace
 from iOpenPod.app.library_write import LibraryPreparationRequest
 from iOpenPod.app.media.importing import MusicImporter
@@ -160,6 +161,11 @@ def test_embedded_artwork_is_retained_for_a_non_cover_device(tmp_path: Path) -> 
         )
 
         assert song.artwork is not None
+        encoded = embedded_artwork_from_bytes(
+            Path(song_file(tmp_path).path).read_bytes()
+        )
+        assert encoded is not None
+        assert song.artwork.source_image_size == len(encoded)
         assert not device.active.profile.capabilities.artwork.supports_cover_art
     finally:
         device.coordinator.close()

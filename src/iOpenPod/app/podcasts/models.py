@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 
@@ -277,8 +277,11 @@ class PodcastArtworkImage:
     width: int
     height: int
     rgb888: bytes
+    source_image_size: int = field(default=0, kw_only=True)
 
     def __post_init__(self) -> None:
+        if not 0 <= self.source_image_size <= 0xFFFFFFFF:
+            raise ValueError("Podcast artwork source image size must fit uint32")
         if not self.cache_key or not self.source_url.strip():
             raise ValueError("Podcast Artwork requires a cache key and source URL")
         if self.width <= 0 or self.height <= 0:

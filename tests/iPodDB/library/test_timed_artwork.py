@@ -45,6 +45,67 @@ TIMED_TARGET = replace(
 )
 
 
+def test_timed_artwork_size_comes_from_zero_frame_and_survives_references() -> None:
+    source = library()
+    asset = TimedArtworkAsset(
+        -10,
+        (
+            TimedArtworkFrame(0, replace(RED.pixels, source_image_size=1234)),
+            TimedArtworkFrame(15000, replace(BLUE.pixels, source_image_size=9876)),
+        ),
+    )
+    desired = replace(
+        source.snapshot,
+        tracks=(
+            replace(source.snapshot.tracks[0], artwork_id=asset.artwork_id),
+            source.snapshot.tracks[1],
+        ),
+    )
+    first = source.prepare(
+        source.analyze(source.begin_draft(desired), TIMED_TARGET),
+        WriteResources(artwork=(asset,), file_inventory=()),
+    )
+    assert first.prepared is not None, first.issues
+    assert first.prepared.artwork is not None
+    row = parse_ArtworkDB(first.prepared.artwork).find_chunks(MhiiHeader)[0].chunk
+    assert row.header.source_image_size == 1234
+    reloaded = IPodLibrary(first.prepared.itunes).with_artwork(first.prepared.artwork)
+    reference = TimedArtworkAsset(
+        -11,
+        tuple(
+            TimedArtworkFrame(time, ArtworkGroupReference(row.header.image_id, time))
+            for time in (0, 15000)
+        ),
+    )
+    desired = replace(
+        reloaded.snapshot,
+        tracks=(
+            replace(reloaded.snapshot.tracks[0], artwork_id=reference.artwork_id),
+            reloaded.snapshot.tracks[1],
+        ),
+    )
+    files = tuple(
+        SourceFile(
+            FileDependency(f.relative_path, len(f.data), content_sha256(f.data)), f.data
+        )
+        for f in first.prepared.artwork_files
+    )
+    second = reloaded.prepare(
+        reloaded.analyze(reloaded.begin_draft(desired), TIMED_TARGET),
+        WriteResources(
+            artwork=(reference,),
+            files=files,
+            file_inventory=tuple(f.dependency for f in files),
+        ),
+    )
+    assert second.prepared is not None, second.issues
+    assert second.prepared.artwork is not None
+    assert {
+        s.chunk.header.source_image_size
+        for s in parse_ArtworkDB(second.prepared.artwork).find_chunks(MhiiHeader)
+    } == {1234}
+
+
 def test_exact_time_read_and_metadata_preserve_raw_time_keys() -> None:
     source, _ = with_shared_artwork()
     original = source.serialize()

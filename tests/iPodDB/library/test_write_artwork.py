@@ -21,6 +21,8 @@ from iPodDB.ArtworkDB.shared.chunk_defs.mhod_payloads.container_mhod import (
 )
 from iPodDB.ArtworkDB.shared.chunk_defs.mhsd import MhsdHeader
 from iPodDB.ArtworkDB.writer.write_ArtworkDB import write_ArtworkDB
+from iPodDB.iTunesDB.parser.parse_iTunesDB import parse_iTunesDB
+from iPodDB.iTunesDB.shared.chunk_defs.mhit import MhitHeader
 from iPodDB.library import ArtworkPixels, CoverFormat, IPodLibrary
 from iPodDB.library.file_content import content_sha256, read_content
 from iPodDB.library.writing import (
@@ -36,6 +38,40 @@ COVER = CoverFormat(1055, 4, 4, 8, IthmbPixelFormat.RGB565_LE)
 TARGET = WriteTarget(cover_formats=(COVER,), artwork_root_value=2)
 RED = ArtworkAsset(-1, ArtworkPixels(4, 4, bytes((255, 0, 0)) * 16))
 BLUE = ArtworkAsset(-2, ArtworkPixels(4, 4, bytes((0, 0, 255)) * 16))
+
+
+@pytest.mark.parametrize("source_size", [0, 1234])
+def test_mhii_uses_encoded_source_size_instead_of_rgb_length(source_size: int) -> None:
+    source = library()
+    pixels = replace(RED.pixels, source_image_size=source_size)
+    desired = replace(
+        source.snapshot,
+        tracks=tuple(
+            replace(t, artwork_id=RED.artwork_id) for t in source.snapshot.tracks
+        ),
+    )
+    result = source.prepare(
+        source.analyze(source.begin_draft(desired), TARGET),
+        WriteResources(
+            artwork=(ArtworkAsset(RED.artwork_id, pixels),), file_inventory=()
+        ),
+    )
+    assert result.prepared is not None, result.issues
+    assert result.prepared.artwork is not None
+    document = parse_ArtworkDB(result.prepared.artwork)
+    assert {
+        s.chunk.header.source_image_size for s in document.find_chunks(MhiiHeader)
+    } == {source_size}
+    assert {
+        s.chunk.header.artwork_size
+        for s in parse_iTunesDB(result.prepared.itunes).find_chunks(MhitHeader)
+    } == {source_size}
+
+
+@pytest.mark.parametrize("source_size", [-1, 0x1_0000_0000])
+def test_artwork_source_size_must_fit_native_uint32(source_size: int) -> None:
+    with pytest.raises(ValueError, match=r"source.*size"):
+        replace(RED.pixels, source_image_size=source_size)
 
 
 def with_shared_artwork(

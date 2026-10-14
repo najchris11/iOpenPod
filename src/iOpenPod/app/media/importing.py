@@ -240,4 +240,6 @@ def _cover(parsed: Any) -> ArtworkPixels | None:
         if max(image.size) > 8192 or image.width * image.height > 32 * 1024 * 1024:
             raise ValueError("Embedded cover dimensions exceed the artwork limit.")
         rgb = ImageOps.exif_transpose(image).convert("RGB")
-        return ArtworkPixels(rgb.width, rgb.height, rgb.tobytes())
+        return ArtworkPixels(
+            rgb.width, rgb.height, rgb.tobytes(), source_image_size=len(data)
+        )

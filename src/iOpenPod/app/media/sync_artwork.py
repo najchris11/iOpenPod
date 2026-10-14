@@ -55,4 +55,6 @@ def capture_sync_artwork(
         image = ImageOps.exif_transpose(opened).convert("RGB")
         image.thumbnail((target_px, target_px), Image.Resampling.LANCZOS)
         checkpoint()
-        return ArtworkPixels(image.width, image.height, image.tobytes())
+        return ArtworkPixels(
+            image.width, image.height, image.tobytes(), source_image_size=len(payload)
+        )

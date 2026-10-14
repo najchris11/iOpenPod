@@ -33,6 +33,7 @@ class _Loader:
             2,
             2,
             b"\xff\x00\x00" * 4,
+            source_image_size=999,
         )
 
 
@@ -67,6 +68,7 @@ def test_shared_publisher_cover_fits_once_in_bounded_batch(
 
     assert [cover.subscription_id for cover in result.covers] == ["first", "second"]
     assert result.covers[0].pixels is result.covers[1].pixels
+    assert result.covers[0].pixels.source_image_size == 999
     assert len(loader.requests) == 2
     assert len(result.issues) == 1
     assert result.issues[0].severity is IssueSeverity.WARNING

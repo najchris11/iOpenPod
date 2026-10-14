@@ -212,7 +212,7 @@ def zero_source_size(
 ) -> int:
     zero = next(f.source for f in frames if f.display_time_ms == 0)
     if isinstance(zero, ArtworkPixels):
-        return len(zero.rgb888)
+        return zero.source_image_size
     row = rows.get(zero.artwork_id)
     if row is None:
         raise ValueError(

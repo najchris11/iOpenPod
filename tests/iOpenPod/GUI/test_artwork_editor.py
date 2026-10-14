@@ -480,6 +480,27 @@ def test_timed_sequences_with_matching_covers_remain_distinct_in_consolidation()
         editor.close()
 
 
+def test_imported_cover_keeps_encoded_source_size_after_gui_crop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pixels = ArtworkPixels(2, 1, b"\xff\0\0" * 2, source_image_size=1234)
+    editor = ArtworkEditor((Track(1, "One", "Artist", "Album", 30_000),), ())
+    monkeypatch.setattr(
+        ArtworkCropDialog, "exec", lambda _: int(QDialog.DialogCode.Accepted)
+    )
+    try:
+        importer = editor.findChild(ArtworkImportController)
+        assert importer is not None
+        importer.finished.emit(pixels, "cover.png")
+        edit = editor.edit()
+        assert edit is not None and edit.pixels is not None
+        assert edit.pixels.width == edit.pixels.height
+        assert edit.pixels.source_image_size == 1234
+    finally:
+        editor.shutdown()
+        editor.close()
+
+
 def test_cancelled_crop_keeps_original_timeline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

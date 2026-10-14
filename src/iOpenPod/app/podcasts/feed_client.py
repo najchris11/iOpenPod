@@ -260,6 +260,7 @@ class HttpPodcastArtworkLoader:
             width=target_px,
             height=target_px,
             rgb888=rgb888,
+            source_image_size=len(payload),
         )
 
 

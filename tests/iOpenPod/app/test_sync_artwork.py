@@ -36,6 +36,9 @@ def test_embedded_cover_uses_the_scanned_image_identity_and_storage_capture(
     pixels = capture_sync_artwork(source, 128, checkpoint=lambda: None)
     assert 0 < pixels.width <= 128 and 0 < pixels.height <= 128
     assert pixels.rgb888
+    assert pixels.source_image_size == len(cover)
+    assert pixels.source_image_size != len(pixels.rgb888)
+    assert pixels.source_image_size != len(data)
     path.write_bytes(data + b"changed")
     with pytest.raises(ValueError, match="changed after scanning"):
         capture_sync_artwork(source, 128, checkpoint=lambda: None)

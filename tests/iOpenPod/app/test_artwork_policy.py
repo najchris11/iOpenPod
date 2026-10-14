@@ -98,6 +98,7 @@ def test_non_cover_profiles_get_a_compact_grayscale_rockbox_cover() -> None:
             for index in range(240 * 240)
             for component in (index % 256, (index * 3) % 256, 255 - index % 256)
         ),
+        source_image_size=1234,
     )
 
     compact = rockbox_artwork(mini, pixels)
@@ -110,6 +111,7 @@ def test_non_cover_profiles_get_a_compact_grayscale_rockbox_cover() -> None:
         for offset in range(0, len(compact.rgb888), 3)
     )
     assert len(compact.rgb888) == 120 * 120 * 3
+    assert compact.source_image_size == 1234
 
 
 def test_native_profiles_keep_the_full_color_rockbox_cover() -> None:

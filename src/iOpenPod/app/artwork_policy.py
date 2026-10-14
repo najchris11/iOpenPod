@@ -105,6 +105,7 @@ def rockbox_artwork(profile: DeviceProfile, pixels: ArtworkPixels) -> ArtworkPix
                     ROCKBOX_NON_NATIVE_ARTWORK_PX,
                     ROCKBOX_NON_NATIVE_ARTWORK_PX,
                     grayscale.tobytes(),
+                    source_image_size=pixels.source_image_size,
                 )
             finally:
                 grayscale.close()

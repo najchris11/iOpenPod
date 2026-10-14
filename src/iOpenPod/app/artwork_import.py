@@ -53,7 +53,12 @@ def import_artwork(
                 _validate_dimensions(*oriented.size)
                 checkpoint()
                 rgb = oriented.convert("RGB")
-                pixels = ArtworkPixels(rgb.width, rgb.height, rgb.tobytes())
+                pixels = ArtworkPixels(
+                    rgb.width,
+                    rgb.height,
+                    rgb.tobytes(),
+                    source_image_size=captured.fingerprint.size,
+                )
                 checkpoint()
                 return pixels
     except UnidentifiedImageError as error:

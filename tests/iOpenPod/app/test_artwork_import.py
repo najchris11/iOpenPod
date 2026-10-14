@@ -26,6 +26,8 @@ def test_import_applies_exif_orientation_and_returns_owned_rgb(tmp_path: Path) -
 
     assert (pixels.width, pixels.height) == (3, 2)
     assert len(pixels.rgb888) == 3 * 2 * 3
+    assert pixels.source_image_size == path.stat().st_size
+    assert pixels.source_image_size != len(pixels.rgb888)
 
 
 def test_import_rejects_dimensions_before_loading_pixels(tmp_path: Path) -> None:

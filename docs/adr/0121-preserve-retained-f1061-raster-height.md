@@ -4,6 +4,7 @@
 - Date: 2026-10-06
 - Extends: ADR-0012 and ADR-0111
 - Amended by: ADR-0124, which accepts individually validated mixed layouts.
+- Amended by: ADR-0143, which changes fresh artwork to padded 55x55 while retaining legacy layouts.
 
 ## Context
 

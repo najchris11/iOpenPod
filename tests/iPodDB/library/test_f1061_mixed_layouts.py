@@ -94,10 +94,18 @@ def mixed_source(
     "mhif_size, expected_size", [(6160, 6160), (6272, 6272), (99, 6272)]
 )
 @pytest.mark.parametrize("allocation", [6160, 6272])
+@pytest.mark.parametrize("new_default", [False, True])
 def test_mixed_f1061_prepares_and_preserves_retained_artwork(
-    mhif_size: int, expected_size: int, allocation: int
+    mhif_size: int, expected_size: int, allocation: int, new_default: bool
 ) -> None:
     source, target, resources = mixed_source(mhif_size, allocation=allocation)
+    if new_default:
+        target = replace(
+            target,
+            cover_formats=(replace(target.cover_formats[0], width=55, height=55),),
+        )
+        if mhif_size == 99:
+            expected_size = 6160
     original = source.serialize()
     result = prepare_cover(source, target, resources)
     assert result.prepared is not None, result.issues

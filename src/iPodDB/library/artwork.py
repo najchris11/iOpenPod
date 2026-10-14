@@ -1,6 +1,6 @@
 """Byte-only cover selection and decoding for callers that own persistence."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from iPodDB.ArtworkDB.ithmb import IthmbLayout, decode_ithmb
 from iPodDB.ArtworkDB.ithmb import IthmbPixelFormat as CoverPixelFormat
@@ -16,6 +16,17 @@ class CoverFormat:
     height: int
     row_bytes: int
     pixel_format: CoverPixelFormat
+
+
+def is_f1061_layout(cover: CoverFormat) -> bool:
+    """Recognize the padded default and evidenced legacy F1061 layouts."""
+    return (
+        cover.format_id == 1061
+        and cover.width in (55, 56)
+        and cover.height in (55, 56)
+        and cover.row_bytes == 112
+        and cover.pixel_format is CoverPixelFormat.RGB565_LE
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +95,10 @@ def select_artwork(
         return (0, edge, area) if edge >= target_px else (1, -edge, -area)
 
     location, cover = min(candidates, key=score)
+    if is_f1061_layout(cover) and location.byte_length in (6160, 6272):
+        # Retained MHNI dimensions can exceed the new 55x55 default. The
+        # known stride/length bound both dimensions independently of that default.
+        cover = replace(cover, width=56, height=location.byte_length // cover.row_bytes)
     return ArtworkRead(
         format_id=cover.format_id,
         relative_path=_artwork_path(location),

@@ -55,6 +55,7 @@ from iPodDB.library._artwork_timing import (
 from iPodDB.library._document_edit import rebuild
 from iPodDB.library._resolved_write import ResolvedWrite
 from iPodDB.library.artwork import CoverFormat
+from iPodDB.library.artwork import is_f1061_layout as _is_f1061_layout
 from iPodDB.library.file_content import (
     ContentBuffer,
     MemoryContentBuffer,
@@ -131,16 +132,6 @@ def retained_artwork_extents(
         if isinstance(child.header, MhodHeader)
         and child.header.mhod_type == ArtworkMhodType.FILE_NAME
         and isinstance(child.payload, MhodStringPayload)
-    )
-
-
-def _is_f1061_layout(cover: CoverFormat) -> bool:
-    return (
-        cover.format_id == 1061
-        and cover.width == 56
-        and cover.height in (55, 56)
-        and cover.row_bytes == 112
-        and cover.pixel_format is IthmbPixelFormat.RGB565_LE
     )
 
 
@@ -277,7 +268,11 @@ def _validate_retained_artwork_format(
                     "Retained MHNI image sizes disagree with the target layout."
                 )
             for dimension, padding, expected in (
-                (header.image_width, header.horizontal_padding, cover.width),
+                (
+                    header.image_width,
+                    header.horizontal_padding,
+                    56 if _is_f1061_layout(cover) else cover.width,
+                ),
                 (header.image_height, header.vertical_padding, height),
             ):
                 # Packed RGB stride and size establish the raster independently
@@ -362,7 +357,18 @@ def effective_cover_format(
                 image_sizes,
                 key=lambda size: (image_sizes[size], size == default_size),
             )
-        return replace(cover, height=image_size // cover.row_bytes)
+        width = max(
+            cover.width,
+            max(
+                child.payload.child.header.image_width
+                for selection in artwork.find_chunks(MhiiHeader)
+                if selection.chunk.header.image_id not in excluded_images
+                for child in selection.chunk.children
+                if isinstance(child.payload, MhodContainerPayload)
+                and child.payload.child.header.format_id == 1061
+            ),
+        )
+        return replace(cover, width=width, height=image_size // cover.row_bytes)
     # With no retained F1061 images, the MHIF entry is the only on-disk layout
     # declaration. A new ArtworkDB uses the Device Profile's default instead.
     if retained_size in (6160, 6272):

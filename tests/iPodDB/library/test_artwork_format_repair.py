@@ -133,9 +133,11 @@ def test_nano_sizes_are_corrected_automatically_without_other_changes(
     assert "87552000" in caplog.text and "115200" in caplog.text
 
 
-@pytest.mark.parametrize("height", [55, 56])
-def test_consistent_retained_f1061_layout_accepts_new_artwork(height: int) -> None:
-    retained = replace(COVER, format_id=1061, width=56, height=height, row_bytes=112)
+@pytest.mark.parametrize("width,height", [(55, 55), (56, 55), (56, 56)])
+def test_consistent_retained_f1061_layout_accepts_new_artwork(
+    width: int, height: int
+) -> None:
+    retained = replace(COVER, format_id=1061, width=width, height=height, row_bytes=112)
     classic = DEFAULT_DEVICE_REGISTRY.profile_for_model_number("MB565")
     assert classic is not None
     catalog = next(
@@ -169,7 +171,35 @@ def test_consistent_retained_f1061_layout_accepts_new_artwork(height: int) -> No
         if file.relative_path == read.relative_path
     )
     pixels = read.decode(read_content(output.data, read.offset, read.length))
-    assert (pixels.width, pixels.height) == (56, height)
+    assert (pixels.width, pixels.height) == (width, height)
+    for original in resources.files:
+        written = next(
+            f
+            for f in result.prepared.artwork_files
+            if f.relative_path == original.dependency.relative_path
+        )
+        assert read_content(written.data, 0, len(original.data)) == original.data
+
+
+def test_fresh_catalog_f1061_writes_55_square_with_padded_rows() -> None:
+    classic = DEFAULT_DEVICE_REGISTRY.profile_for_model_number("MB565")
+    assert classic is not None
+    cover = next(f for f in application_cover_formats(classic) if f.format_id == 1061)
+    source, _, resources = retained_source((cover,))
+    document = parse_ArtworkDB(source.serialize().artwork or b"")
+    assert document.find_chunks(MhifHeader)[0].chunk.header.image_size == 6160
+    for image in document.find_chunks(MhiiHeader):
+        for child in image.chunk.children:
+            if isinstance(child.payload, MhodContainerPayload):
+                header = child.payload.child.header
+                assert (header.image_width, header.image_height) == (55, 55)
+                assert (header.image_size, header.image_size_2) == (6160, 6160)
+    for file in resources.files:
+        data = read_content(file.data, 0, len(file.data))
+        assert all(
+            data[offset : offset + 2] == b"\0\0"
+            for offset in range(110, len(data), 112)
+        )
 
 
 @pytest.mark.parametrize("height", [55, 56])

@@ -1024,6 +1024,8 @@ During cover preparation, iPodDB automatically reconciles conflicting MHIF image
 sizes when the fixed-size encoding, individually validated retained MHNI
 representations, and captured thumbnail ranges establish a supported layout.
 F1061 permits its known 55-row and 56-row rasters to coexist. New artwork follows
+the padded 55x55 default for a fresh database while retaining evidenced legacy
+56-column layouts when extending an existing database (ADR-0143). It follows
 a retained MHIF size present among those rasters, otherwise the most common size
 with the Device Profile breaking ties. Packed RGB formats with an explicit row
 stride may have visible dimensions smaller than the validated raster without

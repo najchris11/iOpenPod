@@ -103,6 +103,7 @@ _ALIASES: dict[str, tuple[str, ...]] = {
         "WM/ComposerSortOrder",
     ),
     "sort_show": ("sosn", "showsort", "sortshow", "tvshowsort"),
+    "rating": ("rating",),
     "content_advisory": ("rtng", "ITUNESADVISORY", "CONTENTRATING"),
     "normalization_gain_db": ("replaygain_track_gain",),
     "sound_check": ("iTunNORM",),
@@ -124,6 +125,36 @@ class _TagKeys(Protocol):
 
 def _key(value: str) -> str:
     return re.sub(r"[ _-]", "", value.casefold())
+
+
+def _star_rating(raw: str) -> str | None:
+    """Map a file's rating to the iPod's 0-100 (steps of 20).
+
+    Files in the wild use 1-5 stars, 0-100 (what Vorbis/MP4 taggers usually write) or the
+    0-255 ID3 POPM scale. Anything that is not a plain number is ignored."""
+    try:
+        value = float(raw.strip())
+    except ValueError:
+        return None
+    if value <= 0:
+        return "0"
+    if value <= 5:
+        stars = int(value + 0.5)
+    elif value <= 100:
+        stars = int(value / 20 + 0.5)
+    else:
+        stars = (
+            1
+            if value <= 31
+            else 2
+            if value <= 95
+            else 3
+            if value <= 159
+            else 4
+            if value <= 223
+            else 5
+        )
+    return str(max(1, min(5, stars)) * 20)
 
 
 def _text(value: object, depth: int = 0) -> str:
@@ -242,6 +273,10 @@ def read_tag_values(tags: object) -> tuple[MediaTag, ...]:
                 if value <= 223
                 else 100
             )
+    if "rating" in result and (stars := _star_rating(result["rating"])) is not None:
+        result["rating"] = stars
+    else:
+        result.pop("rating", None)
     # FFprobe qualifies ID3 USLT language/description with a lyrics- prefix.
     if "lyrics" not in result:
         for name in sorted(names.values()):

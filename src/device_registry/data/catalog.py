@@ -212,7 +212,7 @@ def _capabilities(
 _CLASSIC_CAPABILITIES = _capabilities(
     display=(320, 240, True),
     gapless=True,
-    cover_formats=_artwork_formats(1055, 1060, 1061, 1068),
+    cover_formats=_artwork_formats(1055, 1060, 1061),
     # libgpod's Classic chapter fallback (itdb_device.c, commit 7982c555).
     # This is source-supported policy, not queried firmware metadata.
     chapter_formats=tuple(
@@ -297,7 +297,7 @@ _CAPABILITIES_BY_IDENTITY: dict[tuple[str, str], DeviceCapabilities] = {
     ("iPod Nano", "3rd Gen"): _capabilities(
         display=(320, 240, True),
         gapless=True,
-        cover_formats=_artwork_formats(1061, 1055, 1068, 1060),
+        cover_formats=_artwork_formats(1061, 1055, 1060),
         photo_formats=_artwork_formats(1067, 1024, 1066),
         sparse_artwork=True,
         video=(320, 240, 768, "1.3"),
@@ -310,7 +310,7 @@ _CAPABILITIES_BY_IDENTITY: dict[tuple[str, str], DeviceCapabilities] = {
     ("iPod Nano", "4th Gen"): _capabilities(
         display=(240, 320, True),
         gapless=True,
-        cover_formats=_artwork_formats(1055, 1068, 1071, 1074, 1078, 1084),
+        cover_formats=_artwork_formats(1055, 1071, 1074, 1078, 1084),
         photo_formats=_artwork_formats(1024, 1066, 1079, 1083),
         chapter_images=True,
         sparse_artwork=True,

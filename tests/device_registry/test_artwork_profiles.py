@@ -20,7 +20,7 @@ def test_device_profiles_assign_product_images_and_cover_formats() -> None:
     assert {
         artwork_format.format_id
         for artwork_format in classic.capabilities.artwork.cover_formats
-    } == {1055, 1060, 1061, 1068}
+    } == {1055, 1060, 1061}
     small_classic = classic.capabilities.artwork.cover_format(1061)
     assert small_classic is not None
     assert (small_classic.width, small_classic.height, small_classic.row_bytes) == (
@@ -57,7 +57,6 @@ def test_only_classic_profiles_declare_the_source_supported_chapter_layouts() ->
             1055,
             1060,
             1061,
-            1068,
         )
         assert tuple(
             (f.format_id, f.width, f.height, f.row_bytes, f.pixel_format, f.usage)
@@ -68,6 +67,26 @@ def test_only_classic_profiles_declare_the_source_supported_chapter_layouts() ->
         )
         assert all(f.usage is ArtworkUsage.COVER for f in artwork.cover_formats)
     assert classic_generations == {"6th Gen", "6.5th Gen", "7th Gen"}
+
+
+def test_video_poster_slot_is_not_a_generic_cover_format() -> None:
+    affected = set()
+    for profile in DEFAULT_DEVICE_REGISTRY.profiles:
+        if profile.family == "iPod Classic" or (
+            profile.family == "iPod Nano"
+            and profile.generation in {"3rd Gen", "4th Gen"}
+        ):
+            affected.add((profile.family, profile.generation))
+            assert 1068 not in {
+                f.format_id for f in profile.capabilities.artwork.cover_formats
+            }
+    assert affected == {
+        ("iPod Classic", "6th Gen"),
+        ("iPod Classic", "6.5th Gen"),
+        ("iPod Classic", "7th Gen"),
+        ("iPod Nano", "3rd Gen"),
+        ("iPod Nano", "4th Gen"),
+    }
 
 
 def test_chapter_layouts_require_support_and_the_chapter_role() -> None:

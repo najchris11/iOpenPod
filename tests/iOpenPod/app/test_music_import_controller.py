@@ -221,7 +221,11 @@ def test_import_draft_uses_the_selected_save_policy(
             writer.prepare()
             wait_for(lambda: writer.state is PreparationState.READY)
             device.assert_original()
-            assert writer.review is not None and len(writer.review.file_changes) == 7
+            assert writer.review is not None
+            assert len(writer.review.file_changes) == 3 + len(
+                device.active.profile.capabilities.artwork.cover_formats
+            )
+            assert all("F1068_" not in file.path for file in writer.review.file_changes)
             assert writer.can_save
             writer.save()
         wait_for(lambda: writer.state is PreparationState.SAVED)

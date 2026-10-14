@@ -1817,7 +1817,6 @@ def test_classic_save_target_keeps_cover_and_chapter_layouts_separate(
             1055,
             1060,
             1061,
-            1068,
         )
         assert tuple(f.format_id for f in review.plan.target.chapter_formats) == (
             1055,

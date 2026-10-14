@@ -301,7 +301,13 @@ def test_cover_replacement_publishes_all_formats_then_restores(device: Device) -
     before = device.active.library
     review = device.prepare(cover_snapshot(device), cover=True)
     assert review.result.prepared is not None, review.result.issues
-    assert len(review.result.prepared.artwork_files) == 4
+    assert len(review.result.prepared.artwork_files) == len(
+        device.active.profile.capabilities.artwork.cover_formats
+    )
+    assert all(
+        "F1068_" not in file.relative_path
+        for file in review.result.prepared.artwork_files
+    )
     assert [f.path for f in review.file_changes][-2:] == [
         "iPod_Control/Artwork/ArtworkDB",
         "iPod_Control/iTunes/iTunesDB",

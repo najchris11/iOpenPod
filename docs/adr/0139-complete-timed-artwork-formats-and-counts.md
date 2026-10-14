@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-11
 - Extends: ADR-0138
+- Amended by: ADR-0145, which omits F1068 from generic cover generation.
 
 ## Context
 

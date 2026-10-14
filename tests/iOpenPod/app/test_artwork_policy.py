@@ -36,7 +36,6 @@ def test_native_cover_profiles_keep_their_declared_layouts_and_root() -> None:
         1055,
         1060,
         1061,
-        1068,
     )
     assert application_artwork_root_value(classic) == 6
 
@@ -48,7 +47,6 @@ def test_classic_chapter_layouts_are_separate_writes_and_combined_reads() -> Non
         1055,
         1060,
         1061,
-        1068,
     )
     assert tuple(f.format_id for f in application_chapter_formats(classic)) == (
         1055,
@@ -58,7 +56,6 @@ def test_classic_chapter_layouts_are_separate_writes_and_combined_reads() -> Non
         1055,
         1060,
         1061,
-        1068,
         1029,
     )
     chapter = application_chapter_formats(classic)[1]

@@ -14,6 +14,13 @@ then beyond it.
 
 ## Current stage
 
+Sync now writes changed nonzero iPod ratings back to paired MP3/MP4 Host files
+after verified publication. Rating-only changes are selectable Updates in Review;
+Host edits win conflicts, and previous Sync rating baselines prevent stale iPod
+observations from overwriting them. The first successful Sync establishes missing
+baselines. Listening History and external library services remain outside this
+Back Sync step. See ADR-0144 for format support and retry behavior.
+
 The Metadata Editor supports artwork images at explicit Artwork Display Times.
 Drafts retain references to untouched images; preparation writes ordered time
 groups and preserves later images during ordinary cover replacement. Explicit
@@ -263,11 +270,12 @@ read-only, and foreign or declined journals remain untouched. Only actual cleanu
 failures require a cleanup warning and retry. See ADR-0089 and ADR-0093.
 Host tag interpretation now shares native ID3, MP4, Vorbis/APE, ASF, and FFprobe
 aliases across scanning and import. Media classification, TV and Podcast fields,
-lyrics, sorting, advisory, and normalization metadata survive Scan Cache v14.
+lyrics, sorting, advisory, and normalization metadata survive Scan Cache v15.
+Pre-v15 MP4 entries are reinspected once to import freeform ratings.
 Embedded artwork availability is retained separately from absence; older cached
 no-cover records are reinspected once.
-Migrating cache versions 9 through 13 retains reusable Track and Photo records but
-reparses Playlists once so previously excluded network references and valid POSIX
+Migrating cache versions 9 through 14 retains reusable Track and Photo records;
+pre-v14 Playlists are reparsed once so excluded network references and valid POSIX
 names become available without editing the files. Host scanning accepts trailing
 periods, trailing spaces, and Windows reserved names on POSIX Hosts; Windows keeps
 its spelling restrictions. See ADR-0083 and ADR-0136.

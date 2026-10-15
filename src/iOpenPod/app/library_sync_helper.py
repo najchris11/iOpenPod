@@ -99,8 +99,15 @@ class SyncDetails:
     ipod_baseline_pending: bool = False
     host_tag_sha256: str | None = None
     file_tag_policy: str | None = None
+    host_rating: int | None = None
+    ipod_rating: int | None = None
 
     def __post_init__(self) -> None:
+        for rating in (self.host_rating, self.ipod_rating):
+            if rating is not None and (
+                type(rating) is not int or rating not in range(101)
+            ):
+                raise ValueError("Sync rating baselines must use the 0-100 scale")
         if not self.last_synced_at.strip():
             raise ValueError("Sync Details require a last-synced timestamp")
         if self.host_size_bytes < 0 or self.host_modified_ns < 0:
@@ -1275,6 +1282,8 @@ def _sync_document(value: SyncDetails | None) -> dict[str, object] | None:
         "ipod_baseline_pending": value.ipod_baseline_pending,
         "host_tag_sha256": value.host_tag_sha256,
         "file_tag_policy": value.file_tag_policy,
+        "host_rating": value.host_rating,
+        "ipod_rating": value.ipod_rating,
     }
 
 
@@ -1351,6 +1360,8 @@ def _sync_from_document(value: object) -> SyncDetails | None:
         "host_payload_sha256",  # Ignored field from an earlier v4 development build.
         "host_tag_sha256",
         "file_tag_policy",
+        "host_rating",
+        "ipod_rating",
     }
     row = _object(value, "Sync details")
     if not required <= row.keys() or row.keys() - required - optional:
@@ -1399,6 +1410,16 @@ def _sync_from_document(value: object) -> SyncDetails | None:
             None
             if row.get("host_tag_sha256") is None
             else _text(row["host_tag_sha256"], "host_tag_sha256")
+        ),
+        host_rating=(
+            None
+            if row.get("host_rating") is None
+            else _nonnegative_integer(row["host_rating"], "host_rating")
+        ),
+        ipod_rating=(
+            None
+            if row.get("ipod_rating") is None
+            else _nonnegative_integer(row["ipod_rating"], "ipod_rating")
         ),
     )
 

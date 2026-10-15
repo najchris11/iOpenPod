@@ -2,8 +2,9 @@
 
 The Application Layer's `media.tags` adapter interprets native Mutagen values and
 FFprobe metadata for Host Media Scan, music import, and Sync enrichment. Scanning
-is read-only. Normalized fields survive Host Media Scan Cache v14; versions 9
-through 13 migrate while reusing unchanged covered media. Pre-v12 no-cover records
+is read-only. Normalized fields survive Host Media Scan Cache v15; versions 9
+through 14 migrate while reusing unchanged covered media. Pre-v15 MP4 entries are
+reinspected once to import freeform ratings. Pre-v12 no-cover records
 are reinspected once because they did not distinguish absent artwork from an
 unreadable embedded image. Tags describe Library classification, not codec
 compatibility. See [ADR-0133](adr/0133-recover-evidenced-artwork-without-clearing-unavailable-covers.md).
@@ -26,7 +27,7 @@ see [ADR-0083](adr/0083-tolerate-host-native-media-variants.md) and
 | Podcast category, feed URL, enclosure URL, keywords | ID3 `TCAT`, `WFED`, `TKWD`; MP4 `catg`, `purl`, `keyw`; explicit named URL fields |
 | Unsynchronized lyrics and presence | ID3 `USLT`, MP4 `©lyr`, `LYRICS`, `UNSYNCEDLYRICS`, `UNSYNCED LYRICS`, ASF `WM/Lyrics`, FFprobe language-qualified lyrics |
 | Content advisory | MP4 `rtng`, `ITUNESADVISORY`, `CONTENTRATING`; separate from star ratings |
-| Rating | ID3 POPM, using the Original iOpenPod's five-star thresholds |
+| Rating | ID3 POPM, using the Original iOpenPod's five-star thresholds; MP4 freeform `----:com.apple.iTunes:RATING` on the 0-100 scale |
 | Normalization gain | Track ReplayGain; valid ten-word `iTunNORM` fallback |
 | Gapless Album, purchase account, purchaser name | MP4 `pgap`, `apID`, `ownr`, and editor aliases |
 
@@ -93,7 +94,9 @@ Chapters still come from captured FFprobe inspection during preparation. Encoder
 delay/padding, sample counts, codec properties, and compatibility remain media
 inspection/preparation concerns. Descriptive tags do not override those facts.
 Existing iPod ratings and listening history retain the existing Sync Update policy.
-There is no new Host tag writing or database schema.
+After verified Sync, supported rating changes return to the paired MP3/MP4 Host
+file through [rating Back Sync](adr/0144-back-sync-ratings-to-paired-host-files.md).
+Listening History is not written to Host tags.
 
 Tests cover native MP3, WAVE, AIFF, FLAC, and MP4 fixtures; APE/ASF wrappers;
 video-only MP4 and Matroska; cache reload/invalidation; malformed fields; and real

@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 # Native names precede editor/FFprobe aliases. Order defines conflict precedence.
 _ALIASES: dict[str, tuple[str, ...]] = {
+    "rating": ("----:com.apple.iTunes:RATING",),
     "title": ("TIT2", "©nam", "title"),
     "artist": ("TPE1", "©ART", "artist", "Author"),
     "album": ("TALB", "©alb", "album", "WM/AlbumTitle"),

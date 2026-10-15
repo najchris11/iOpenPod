@@ -78,7 +78,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_CACHE_VERSION = 14
+_CACHE_VERSION = 15
 _MAX_CACHE_ENTRIES = 250_000
 _MAX_ARTWORK_BYTES = 64 * 1024 * 1024
 _MAX_INSPECTION_WORKERS = 8
@@ -3025,7 +3025,7 @@ def _decode_cache_contents(
     version = _integer(document.get("version"), "version")
     if version == 9:
         expected = {"version", "entries", "catalog_sha256"}
-    elif version in (10, 11, 12, 13, _CACHE_VERSION):
+    elif version in (10, 11, 12, 13, 14, _CACHE_VERSION):
         expected = {
             "version",
             "entries",
@@ -3049,6 +3049,14 @@ def _decode_cache_contents(
     decoded_records: list[_CachedRecord] = []
     for entry in entries:
         record = _record_from_document(entry, version=version)
+        if (
+            version < 15
+            and isinstance(record, _CachedTrackRecord)
+            and Path(record.path).suffix.casefold()
+            in {".m4a", ".m4b", ".mp4", ".m4v", ".mov"}
+        ):
+            # Earlier readers did not import MP4 freeform RATING values.
+            continue
         if version < 14 and isinstance(record, _CachedPlaylistRecord):
             # Earlier parsers dropped network and valid POSIX name references.
             # Reparse unchanged Playlists without rereading cached media.

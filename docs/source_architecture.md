@@ -1254,7 +1254,7 @@ media file or loading it entirely into memory. Storage also launches fingerprint
 processes against validated inputs and owns temporary device-scan captures.
 
 Host scanning, music import, and Sync enrichment share `app/media/tags.py` for native
-tag interpretation and common Track projection. Cache v14 retains recognized tag
+tag interpretation and common Track projection. Cache v15 retains recognized tag
 values, including classification, TV/Podcast details, sorting, and lyrics. Videos
 without useful native tags or timing can use bounded FFprobe metadata inspection
 through a pinned, seekable Storage input without a whole-file capture. Successful
@@ -1263,6 +1263,15 @@ decoded caches remain in memory under a Storage file-revision hint, and unchange
 catalogs are not rewritten. Embedded artwork availability is separate from absence;
 failed observations cannot request cover removal. See ADR-0099, ADR-0123, ADR-0133, and
 [Host tag coverage](host-media-tags.md).
+
+After verified Sync publication, rating Back Sync writes changed nonzero iPod
+ratings to the selected paired MP3/MP4 Host files. Separate Host and iPod rating
+baselines in Sync Details protect concurrent Host edits; unknown baselines are
+established without writing Host tags. Rating-only work is a selectable Update in
+Review. Storage stages and atomically replaces each validated Host source after
+the Application Layer's rating-only transform and read-back verification. Failed
+Host writes retain retryable baselines and report partial completion independently
+of the committed iPod Library. See ADR-0144.
 
 The Host Library Source projects scanned Tracks, Photos, and Playlists into the same
 immutable `iPodDB.library.LibrarySnapshot` records used by the iPod source. Absolute
@@ -1329,14 +1338,15 @@ recovery. A separate iPod Analysis Cache in Host storage retains completed analy
 for repeated pre-Review scans, including on read-only devices. It is bound to device
 and Volume identities, validates current file facts, checkpoints on cancellation,
 and contains no Sync Details. Host Photo records carry matching SHA-256 evidence in
-Host Media Scan Cache v14. Versions 9 through 13 migrate while retaining reusable
-Track and Photo records. Cached Playlist interpretations are discarded so even
+Host Media Scan Cache v15. Versions 9 through 14 migrate while retaining reusable
+Track and Photo records; pre-v15 MP4 entries are reinspected once for freeform
+rating interpretation. Pre-v14 cached Playlist interpretations are discarded so even
 unchanged Playlists are reparsed once and previously excluded network references
 and valid POSIX names become available without editing the source. See ADR-0083 and
 ADR-0136. Older no-cover records
 are reinspected once to distinguish absent artwork from previously unrecorded
 decoding failures. Long Acoustic Fingerprints use a lossless bounded binary
-encoding in Host cache v14 and helper v5; readers retain prior decimal support.
+encoding in Host cache v15 and helper v5; readers retain prior decimal support.
 The Host Media Scan Cache, iPod Analysis Cache, and Library Sync Helper have no
 aggregate encoded-byte or decoded-fingerprint-byte ceiling. Their checksums,
 record-count limits, and individual fingerprint validation remain enforced. These

@@ -216,3 +216,4 @@ What becomes easier, harder, required, or prohibited?
 - [ADR-0141: Project native CDB metadata into SQLite](0141-project-native-cdb-metadata-into-sqlite.md)
 - [ADR-0142: Refresh Smart Playlists before Library publication](0142-refresh-smart-playlists-before-library-publication.md)
 - [ADR-0143: Separate scan cache size from firmware database limits](0143-separate-scan-cache-size-from-firmware-database-limits.md)
+- [ADR-0144: Back Sync ratings to paired Host files](0144-back-sync-ratings-to-paired-host-files.md)

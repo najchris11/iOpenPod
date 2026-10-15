@@ -6,6 +6,12 @@
 > behavior and validation claims below are retained as research, not as evidence
 > that the current execution path implements or tests each capability.
 
+Current rating Back Sync is defined separately by
+[ADR-0144](adr/0144-back-sync-ratings-to-paired-host-files.md): selected paired
+MP3/MP4 Host files receive eligible nonzero rating changes after verified Sync.
+The historical Listening History and broader format claims below do not describe
+that implementation.
+
 Current Sync automatically converts incompatible video for the Active iPod using
 H.264 Baseline with the fixed `medium` preset and CRF `23`, matching the Original
 iOpenPod's defaults. There are no video encoder settings. The Device Profile supplies

@@ -28,6 +28,7 @@ from iOpenPod.app.sync_execution import (
 )
 from iOpenPod.app.sync_plan import (
     SyncPlanAction,
+    SyncPlanBasis,
     host_path_identity,
     prepare_sync_plan,
     select_sync_plan,
@@ -241,7 +242,9 @@ def test_updates_retain_payload_and_commit_only_required_changes(
         item = selected.items[0]
         if case == "reencoded":
             assert _mp3_audio_bytes(path) != original_payload
-            assert item.action is SyncPlanAction.UNCHANGED
+            assert item.action is SyncPlanAction.UPDATE
+            assert item.basis is SyncPlanBasis.RATING_BACK_SYNC
+            assert not item.audio_payload_changed
             assert device_path.read_bytes() == old_bytes
             return
         assert item.action is SyncPlanAction.UPDATE

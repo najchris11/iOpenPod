@@ -52,6 +52,7 @@ class SyncPlanBasis(StrEnum):
     HOST_FACTS_CHANGED = "host_facts_changed"
     HOST_FACTS_MATCH = "host_facts_match"
     TRACK_DETAILS_CHANGED = "track_details_changed"
+    RATING_BACK_SYNC = "rating_back_sync"
     AUDIO_PAYLOAD_CHANGED = "audio_payload_changed"
     TRACK_DETAILS_MATCH = "track_details_match"
     CONTENT_MATCH = "content_match"
@@ -869,11 +870,21 @@ def _paired_item(
         file_tags_changed = (
             file_tag_policy is not None and sync.file_tag_policy != file_tag_policy
         )
+        from iOpenPod.app.back_sync import rating_needs_back_sync
+
+        rating_changed = (
+            host.track is not None
+            and ipod.track is not None
+            and rating_needs_back_sync(
+                host.track.rating, ipod.track.rating, sync.host_rating, sync.ipod_rating
+            )
+        )
         if (
             audio_payload_changed
             or metadata_changed
             or artwork_changed
             or file_tags_changed
+            or rating_changed
         ):
             return _item(
                 SyncPlanAction.UPDATE,
@@ -881,6 +892,8 @@ def _paired_item(
                     SyncPlanBasis.AUDIO_PAYLOAD_CHANGED
                     if audio_payload_changed
                     else SyncPlanBasis.TRACK_DETAILS_CHANGED
+                    if metadata_changed or artwork_changed or file_tags_changed
+                    else SyncPlanBasis.RATING_BACK_SYNC
                 ),
                 host,
                 ipod,

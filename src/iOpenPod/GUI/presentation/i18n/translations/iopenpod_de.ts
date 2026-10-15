@@ -6482,6 +6482,10 @@ Playlists: %3</translation>
         <translation>Foto</translation>
     </message>
     <message>
+        <source>Write the changed iPod rating to the paired Host file</source>
+        <translation>Geänderte iPod-Bewertung in die zugeordnete Datei auf dem Computer schreiben</translation>
+    </message>
+    <message>
         <source>Audio payload fingerprint changed</source>
         <translation>Audio-Inhaltsfingerabdruck geändert</translation>
     </message>
@@ -8390,6 +8394,10 @@ Playlists: %3</translation>
         <translation>Ja/Nein-Bedingungen akzeptieren keinen zusätzlichen Wert.</translation>
     </message>
     <message>
+        <source>Both Host and iPod ratings changed. The Host rating was kept.</source>
+        <translation>Die Bewertungen auf dem Computer und dem iPod wurden geändert. Die Bewertung auf dem Computer wurde beibehalten.</translation>
+    </message>
+    <message>
         <source>Building the Host Media Library…</source>
         <translation>Mediathek auf dem Computer wird erstellt…</translation>
     </message>
@@ -10042,6 +10050,10 @@ Playlists: %3</translation>
         <translation>Die iOpenPod-Identifikationsregel für Linux wurde ausgeführt. Dieser iPod hat jedoch seine Produktseriennummer nicht bereitgestellt. Schließen Sie ihn erneut an und aktualisieren Sie die Geräte.</translation>
     </message>
     <message>
+        <source>The iPod Sync completed, but its Host rating update could not finish. Rescan and retry Sync.</source>
+        <translation>Die iPod-Synchronisierung wurde abgeschlossen, aber die Bewertung auf dem Computer konnte nicht aktualisiert werden. Scannen Sie erneut und wiederholen Sie die Synchronisierung.</translation>
+    </message>
+    <message>
         <source>The iPod could not be saved. Reconnect or reload before retrying.</source>
         <translation>Der iPod konnte nicht gespeichert werden. Schließen Sie ihn erneut an oder laden Sie ihn neu, bevor Sie es noch einmal versuchen.</translation>
     </message>
@@ -10096,6 +10108,10 @@ Playlists: %3</translation>
     <message>
         <source>The other playlist dataset disagrees with this Playlist. Its relationship cannot be rewritten safely.</source>
         <translation>Der andere Wiedergabelisten-Datenbestand stimmt nicht mit dieser Wiedergabeliste überein. Die Zuordnung kann nicht sicher neu geschrieben werden.</translation>
+    </message>
+    <message>
+        <source>The paired Host file was unavailable; its rating baseline was kept. Rescan before the next Sync.</source>
+        <translation>Die zugeordnete Datei auf dem Computer war nicht verfügbar; ihre Referenzbewertung wurde beibehalten. Scannen Sie vor der nächsten Synchronisierung erneut.</translation>
     </message>
     <message>
         <source>The podcast-aware dataset requires a following standard playlist dataset.</source>
@@ -10276,6 +10292,14 @@ Playlists: %3</translation>
     <message>
         <source>Unsupported media file.</source>
         <translation>Nicht unterstützte Mediendatei.</translation>
+    </message>
+    <message>
+        <source>Updated Host rating from {old} to {new} stars.</source>
+        <translation>Bewertung auf dem Computer von {old} auf {new} Sterne aktualisiert.</translation>
+    </message>
+    <message>
+        <source>Updating paired Host file ratings…</source>
+        <translation>Bewertungen zugeordneter Dateien auf dem Computer werden aktualisiert…</translation>
     </message>
     <message>
         <source>Windows package (sideloaded)</source>

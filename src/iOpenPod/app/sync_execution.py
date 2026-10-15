@@ -21,6 +21,7 @@ from iOpenPod.app.artwork_policy import (
     rockbox_artwork,
     rockbox_tag_policy,
 )
+from iOpenPod.app.back_sync import back_sync_ratings
 from iOpenPod.app.display_text import exception_text, source_text
 from iOpenPod.app.host_media_fingerprint import FpcalcError, FpcalcFingerprinter
 from iOpenPod.app.host_media_library import HostMediaFileKind
@@ -607,7 +608,9 @@ class SyncExecutor:
                     is None
                 )
                 has_user_match = any(
-                    item.basis is SyncPlanBasis.USER_MATCH for item in completed
+                    item.basis
+                    in (SyncPlanBasis.USER_MATCH, SyncPlanBasis.RATING_BACK_SYNC)
+                    for item in completed
                 )
                 if has_user_match or unchanged_draft:
                     review = self._coordinator.prepare_library(
@@ -732,33 +735,52 @@ class SyncExecutor:
                         or requested_playlists
                         or podcast_changes
                     ):
+                        synced_tracks = (
+                            *(
+                                pending_cover_provenance(item.provenance)
+                                if artwork_deferred
+                                else item.provenance
+                                for item in prepared
+                            ),
+                            *(
+                                pending_cover_provenance(item.provenance)
+                                if artwork_deferred
+                                else item.provenance
+                                for item in metadata_updates
+                            ),
+                            *(
+                                SyncedTrack(
+                                    DevicePath(item.song.track.metadata.location),
+                                    item.acoustic_fingerprint,
+                                )
+                                for item in podcast_tracks
+                                if item.acoustic_fingerprint
+                            ),
+                        )
+                        progress(
+                            WriteProgress(
+                                "sync.back_sync", "Updating paired Host file ratings…"
+                            )
+                        )
+                        with self._coordinator.sync_session(saved.active) as session:
+
+                            def validate_rating_device() -> None:
+                                session.stat(DevicePath("iPod_Control"))
+
+                            synced_tracks, rating_issues = back_sync_ratings(
+                                request,
+                                saved.active,
+                                completed,
+                                synced_tracks,
+                                validate_device=validate_rating_device,
+                            )
+                        issues.extend(rating_issues)
                         helper = self._coordinator.publish_sync_success(
                             saved.active,
                             request.ipod
                             if request.reconcile_playlists or request.plan.items
                             else None,
-                            (
-                                *(
-                                    pending_cover_provenance(item.provenance)
-                                    if artwork_deferred
-                                    else item.provenance
-                                    for item in prepared
-                                ),
-                                *(
-                                    pending_cover_provenance(item.provenance)
-                                    if artwork_deferred
-                                    else item.provenance
-                                    for item in metadata_updates
-                                ),
-                                *(
-                                    SyncedTrack(
-                                        DevicePath(item.song.track.metadata.location),
-                                        item.acoustic_fingerprint,
-                                    )
-                                    for item in podcast_tracks
-                                    if item.acoustic_fingerprint
-                                ),
-                            ),
+                            synced_tracks,
                             tuple(item.provenance for item in photos),
                         )
                         issues.extend(
@@ -2258,7 +2280,10 @@ def _draft(
                 ),
             )
         tracks[identity] = track
-        if request.options.rockbox_metadata:
+        if (
+            request.options.rockbox_metadata
+            and item.basis is not SyncPlanBasis.RATING_BACK_SYNC
+        ):
             embedded_artwork = (
                 None
                 if update.artwork is None

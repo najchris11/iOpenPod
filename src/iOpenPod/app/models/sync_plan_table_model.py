@@ -299,6 +299,11 @@ def _media_label(kind: SyncPlanMediaKind) -> str:
 
 
 def _basis_label(item: SyncPlanItem) -> str:
+    if item.basis is SyncPlanBasis.RATING_BACK_SYNC:
+        return QCoreApplication.translate(
+            "SyncPlanTableModel",
+            "Write the changed iPod rating to the paired Host file",
+        )
     if item.basis is SyncPlanBasis.AUDIO_PAYLOAD_CHANGED:
         return QCoreApplication.translate(
             "SyncPlanTableModel", "Audio payload fingerprint changed"

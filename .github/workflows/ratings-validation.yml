@@ -1,0 +1,242 @@
+name: Ratings validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Exact ratings commit or branch to test and build
+        required: true
+        type: string
+        default: 1fbc81d5fc9739dfdd948b09ad78b5388e3ffdc8
+      storage_only:
+        description: Skip the full application tests (leave off for full validation)
+        type: boolean
+        default: false
+      verify_phase_runtime:
+        description: Download and verify the optional Phase runtime
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ratings-validation-${{ inputs.source_ref }}
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    # Qt 6.9's macOS stubs have known errors (ADR-0094). Keep one authoritative
+    # type check with Windows bindings, and test both Mac architectures below.
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_ref }}
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.12.7"
+          enable-cache: true
+      - run: uv sync --locked --managed-python
+      - run: uv run --no-sync python -m scripts.prepare_typing
+      - run: uv lock --check
+      - run: uv run --no-sync ruff format --check .
+      - run: uv run --no-sync ruff check .
+      - run: uv run --no-sync rumdl check .
+      - run: uv run --no-sync mypy
+
+  health:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, macos-15, macos-15-intel, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_ref }}
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.12.7"
+          enable-cache: true
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libdbus-1-3 libxkbcommon0 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xkb1 libpulse0 libasound2t64 udev btrfs-progs
+
+      - name: Install project and dev dependencies
+        if: runner.os != 'macOS'
+        run: uv sync --locked --managed-python --group packaging
+
+      - name: Install macOS environment for the declared deployment target
+        if: runner.os == 'macOS'
+        run: uv run --no-project --managed-python --python 3.12 python scripts/sync_macos_build.py --with-checks
+
+      - name: Validate native Btrfs membership without application privileges
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture=$(mktemp -d "$RUNNER_TEMP/iopenpod-btrfs.XXXXXX")
+          first=""
+          second=""
+          cleanup() {
+            result=$?
+            if mountpoint -q "$fixture/alias"; then sudo umount -- "$fixture/alias"; fi
+            if mountpoint -q "$fixture/mounted"; then sudo umount -- "$fixture/mounted"; fi
+            if [ -n "$second" ]; then sudo losetup -d "$second"; fi
+            if [ -n "$first" ]; then sudo losetup -d "$first"; fi
+            exit "$result"
+          }
+          trap cleanup EXIT
+          mkdir "$fixture/mounted" "$fixture/alias"
+          truncate -s 256M "$fixture/first.img" "$fixture/second.img"
+          first=$(sudo losetup --find --show "$fixture/first.img")
+          second=$(sudo losetup --find --show "$fixture/second.img")
+          sudo mkfs.btrfs -f "$first" "$second"
+          sudo mount "$first" "$fixture/mounted"
+          sudo btrfs subvolume create "$fixture/mounted/home"
+          sudo mount --bind "$fixture/mounted/home" "$fixture/alias"
+          IOPENPOD_TEST_BTRFS="$fixture" uv run --no-sync pytest -q tests/storage/test_linux_btrfs_native.py
+
+      - name: Validate Storage before GUI tests
+        run: uv run --no-sync pytest -q tests/storage
+
+      - name: Test, including 1x/1.5x/2x display probes
+        if: ${{ !inputs.storage_only }}
+        run: uv run --no-sync pytest
+
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, macos-15, macos-15-intel, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_ref }}
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.12.7"
+          enable-cache: true
+      - name: Install Linux desktop libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libdbus-1-3 libxkbcommon0 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xkb1 libpulse0 libasound2t64
+      - name: Install locked build environment
+        if: runner.os != 'macOS'
+        run: uv sync --locked --managed-python --no-dev --group packaging
+      - name: Install macOS environment for the declared deployment target
+        if: runner.os == 'macOS'
+        run: uv run --no-project --managed-python --python 3.12 python scripts/sync_macos_build.py
+      - name: Validate release tag before building
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: uv run --no-sync python scripts/package_app.py check-version "$RELEASE_TAG"
+      - name: Build Python distributions
+        run: uv build --no-build-isolation
+      - name: Check wheel payload and launcher
+        run: uv run --no-sync python scripts/check_wheel.py
+      - name: Build source-audited Windows audio library
+        if: runner.os == 'Windows'
+        run: uv run --no-sync python -m scripts.build_windows_sndfile
+      - name: Build unsigned native candidate
+        run: uv run --no-sync python scripts/package_app.py freeze
+      - name: Check the independent update helper
+        if: runner.os != 'macOS'
+        run: uv run --no-sync python -c "import subprocess,sys; from pathlib import Path; helper=Path('dist/iOpenPod-update'+('.exe' if sys.platform=='win32' else '')).resolve(); subprocess.run([str(helper),'--smoke-test'],check=True,timeout=120)"
+      - name: Check Windows executable manifest and payload
+        if: runner.os == 'Windows'
+        run: uv run --no-sync python scripts/check_windows_bundle.py
+      - name: Check every macOS native slice against the deployment target
+        if: runner.os == 'macOS'
+        run: uv run --no-sync python scripts/check_macos_bundle.py
+      - name: Check Windows bundle outside the checkout
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $executable = (Resolve-Path dist/iOpenPod.exe).Path
+          $report = Join-Path $env:RUNNER_TEMP 'frozen-runtime.txt'
+          $arguments = '--smoke-test --smoke-test-report "' + $report + '"'
+          $process = Start-Process -FilePath $executable -ArgumentList $arguments -WorkingDirectory $env:RUNNER_TEMP -Wait -PassThru -WindowStyle Hidden
+          if (-not (Test-Path -LiteralPath $report)) { throw 'Frozen runtime check did not produce its report' }
+          Get-Content -LiteralPath $report
+          if ($process.ExitCode -ne 0) { throw "Frozen runtime check failed: $($process.ExitCode)" }
+      - name: Check macOS bundle outside the checkout
+        if: runner.os == 'macOS'
+        run: |
+          executable="$PWD/dist/iOpenPod.app/Contents/MacOS/iOpenPod"
+          cd "$RUNNER_TEMP"
+          "$executable" --smoke-test
+      - name: Check Linux bundle outside the checkout
+        if: runner.os == 'Linux'
+        run: |
+          executable="$PWD/dist/iOpenPod/iOpenPod"
+          cd "$RUNNER_TEMP"
+          "$executable" --smoke-test
+      - name: Check optional Phase analysis in each native candidate
+        # Optional model acceptance is explicitly selected because it downloads
+        # several gigabytes for each native platform. Acoustic smoke runs always.
+        if: inputs.verify_phase_runtime
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Windows) executable="dist/iOpenPod.exe" ;;
+            macOS) executable="dist/iOpenPod.app/Contents/MacOS/iOpenPod" ;;
+            Linux) executable="dist/iOpenPod/iOpenPod" ;;
+          esac
+          uv run --no-sync python scripts/check_phase_distribution.py "$executable" --root "$RUNNER_TEMP/iopenpod-phase-analysis"
+      - name: Archive candidate with SHA-256
+        run: uv run --no-sync python scripts/package_app.py archive
+      - name: Check macOS drag-to-Applications disk image
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          images=(dist/iOpenPod-*-macOS-*.dmg)
+          test "${#images[@]}" -eq 1
+          mountpoint="$(mktemp -d "$RUNNER_TEMP/iopenpod-dmg.XXXXXX")"
+          cleanup() {
+            hdiutil detach "$mountpoint" >/dev/null 2>&1 || true
+            rmdir "$mountpoint" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          hdiutil attach -readonly -nobrowse -mountpoint "$mountpoint" "${images[0]}"
+          test -d "$mountpoint/iOpenPod.app"
+          test -L "$mountpoint/Applications"
+          test "$(readlink "$mountpoint/Applications")" = /Applications
+          test -s "$mountpoint/.DS_Store"
+          test -s "$mountpoint/.background/background.png"
+          cmp "$mountpoint/iOpenPod.app/Contents/MacOS/iOpenPod" dist/iOpenPod.app/Contents/MacOS/iOpenPod
+          codesign --verify --deep --strict "$mountpoint/iOpenPod.app"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: candidate-${{ matrix.os }}
+          compression-level: 0
+          if-no-files-found: error
+          path: |
+            dist/*.zip
+            dist/*.dmg
+            dist/*.tar.gz
+            dist/*.whl
+            dist/*.sha256
+            build/packaging/licenses/inventory.json
+            build/packaging/macos-compatibility.json

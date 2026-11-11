@@ -27,16 +27,16 @@ jobs:
             ref: 8bb337f1625a655b5b1662ae610b4d9ee967327b
           - version: pr
             os: windows-2022
-            ref: aed59afd73f1f220c6d37b71f7ca879fcfb8f190
+            ref: 944543ed67f66f85c40dd43b0effbb20436f6ce9
           - version: pr
             os: macos-15
-            ref: aed59afd73f1f220c6d37b71f7ca879fcfb8f190
+            ref: 944543ed67f66f85c40dd43b0effbb20436f6ce9
           - version: pr
             os: macos-15-intel
-            ref: aed59afd73f1f220c6d37b71f7ca879fcfb8f190
+            ref: 944543ed67f66f85c40dd43b0effbb20436f6ce9
           - version: pr
             os: ubuntu-24.04
-            ref: aed59afd73f1f220c6d37b71f7ca879fcfb8f190
+            ref: 944543ed67f66f85c40dd43b0effbb20436f6ce9
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:

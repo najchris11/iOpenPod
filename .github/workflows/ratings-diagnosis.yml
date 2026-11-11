@@ -1,0 +1,168 @@
+name: Ratings CI comparison
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    name: Focused / ${{ matrix.version }} / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - version: base
+            os: windows-2022
+            ref: 6ef5ccf712c82cdf3358e4e202a81bc47986b342
+          - version: base
+            os: macos-15
+            ref: 6ef5ccf712c82cdf3358e4e202a81bc47986b342
+          - version: base
+            os: macos-15-intel
+            ref: 6ef5ccf712c82cdf3358e4e202a81bc47986b342
+          - version: base
+            os: ubuntu-24.04
+            ref: 6ef5ccf712c82cdf3358e4e202a81bc47986b342
+          - version: pr
+            os: windows-2022
+            ref: 1fbc81d5fc9739dfdd948b09ad78b5388e3ffdc8
+          - version: pr
+            os: macos-15
+            ref: 1fbc81d5fc9739dfdd948b09ad78b5388e3ffdc8
+          - version: pr
+            os: macos-15-intel
+            ref: 1fbc81d5fc9739dfdd948b09ad78b5388e3ffdc8
+          - version: pr
+            os: ubuntu-24.04
+            ref: 1fbc81d5fc9739dfdd948b09ad78b5388e3ffdc8
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ matrix.ref }}
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.12.7"
+          enable-cache: true
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libdbus-1-3 libxkbcommon0 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xkb1 libpulse0 libasound2t64 udev btrfs-progs
+
+      - name: Install project and dev dependencies
+        if: runner.os != 'macOS'
+        run: uv sync --locked --managed-python --group packaging
+
+      - name: Install macOS environment for the declared deployment target
+        if: runner.os == 'macOS'
+        run: uv run --no-project --managed-python --python 3.12 python scripts/sync_macos_build.py --with-checks
+
+      - name: Compare affected tests and the reported Storage failure
+        shell: bash
+        run: |
+          uv run --no-sync python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import sys
+          candidates = ['tests/iOpenPod/app/test_media_rating_tags.py', 'tests/iOpenPod/app/test_host_media_library.py', 'tests/iOpenPod/app/test_host_media_network.py', 'tests/iOpenPod/app/test_rating_back_sync.py', 'tests/iOpenPod/app/test_export_tagging.py', 'tests/storage/test_host_replacement.py', 'tests/iOpenPod/app/test_sync_execution.py', 'tests/iOpenPod/app/test_sync_updates.py', 'tests/iOpenPod/GUI/test_sync_settings.py', 'tests/storage/test_session.py::test_range_snapshots_expose_a_lightweight_identity_for_safe_caching']
+          present = [p for p in candidates if Path(p.split("::", 1)[0]).is_file()]
+          print("Selected:", present, flush=True)
+          print("PR-new files absent from this revision:", sorted(set(candidates) - set(present)), flush=True)
+          result = subprocess.run(["uv", "run", "--no-sync", "pytest", "-n8", "-vv", "--tb=short", "--junitxml=results/focused.xml", *present], check=False)
+          sys.exit(result.returncode)
+          PY
+      - name: Retain test report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: focused-${{ matrix.version }}-${{ matrix.os }}
+          path: results/focused.xml
+          if-no-files-found: warn
+
+  linux_full:
+    name: Linux full / ${{ matrix.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - version: base
+            ref: 6ef5ccf712c82cdf3358e4e202a81bc47986b342
+          - version: pr
+            ref: 1fbc81d5fc9739dfdd948b09ad78b5388e3ffdc8
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ matrix.ref }}
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.12.7"
+          enable-cache: true
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libdbus-1-3 libxkbcommon0 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xkb1 libpulse0 libasound2t64 udev btrfs-progs
+
+      - name: Install project and dev dependencies
+        if: runner.os != 'macOS'
+        run: uv sync --locked --managed-python --group packaging
+
+      - name: Install macOS environment for the declared deployment target
+        if: runner.os == 'macOS'
+        run: uv run --no-project --managed-python --python 3.12 python scripts/sync_macos_build.py --with-checks
+
+      - name: Validate native Btrfs membership without application privileges
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture=$(mktemp -d "$RUNNER_TEMP/iopenpod-btrfs.XXXXXX")
+          first=""
+          second=""
+          cleanup() {
+            result=$?
+            if mountpoint -q "$fixture/alias"; then sudo umount -- "$fixture/alias"; fi
+            if mountpoint -q "$fixture/mounted"; then sudo umount -- "$fixture/mounted"; fi
+            if [ -n "$second" ]; then sudo losetup -d "$second"; fi
+            if [ -n "$first" ]; then sudo losetup -d "$first"; fi
+            exit "$result"
+          }
+          trap cleanup EXIT
+          mkdir "$fixture/mounted" "$fixture/alias"
+          truncate -s 256M "$fixture/first.img" "$fixture/second.img"
+          first=$(sudo losetup --find --show "$fixture/first.img")
+          second=$(sudo losetup --find --show "$fixture/second.img")
+          sudo mkfs.btrfs -f "$first" "$second"
+          sudo mount "$first" "$fixture/mounted"
+          sudo btrfs subvolume create "$fixture/mounted/home"
+          sudo mount --bind "$fixture/mounted/home" "$fixture/alias"
+          IOPENPOD_TEST_BTRFS="$fixture" uv run --no-sync pytest -q tests/storage/test_linux_btrfs_native.py
+
+      - name: Validate Storage before GUI tests
+        run: uv run --no-sync pytest -q tests/storage
+
+      - name: Test, including 1x/1.5x/2x display probes
+        run: uv run --no-sync pytest -vv --tb=short --max-worker-restart=0 --junitxml=results/full.xml
+      - name: Retain test report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: full-${{ matrix.version }}-linux
+          path: results/full.xml
+          if-no-files-found: warn
